@@ -1,0 +1,33 @@
+{
+  "schema_version": "guardrail-router.policy.v1",
+  "name": "citizen_chatbot_product_side_v1",
+  "low_threshold": 0.2,
+  "high_threshold": 0.8,
+  "stages": [
+    {
+      "name": "local_pii",
+      "guards": ["pii_regex"],
+      "parallel": false,
+      "condition": "always",
+      "allow_exit": false,
+      "resolves_uncertainty": false
+    },
+    {
+      "name": "light_sentinel_checks",
+      "guards": ["sentinel_prompt_injection", "sentinel_jailbreak"],
+      "parallel": true,
+      "condition": "always",
+      "allow_exit": true,
+      "resolves_uncertainty": false
+    },
+    {
+      "name": "deep_context_adjudication",
+      "guards": ["sentinel_deep_context"],
+      "parallel": false,
+      "condition": "on_uncertain",
+      "allow_exit": true,
+      "resolves_uncertainty": true
+    }
+  ]
+}
+

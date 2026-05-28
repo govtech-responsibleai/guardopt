@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guardrail-router"
+version = "0.1.0"
+description = "Lightweight routing and optimization for cascaded LLM guardrails."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Guardrail Router Contributors" }
+]
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
