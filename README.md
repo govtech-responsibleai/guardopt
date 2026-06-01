@@ -22,6 +22,8 @@ This repo is a prototype scaffold. It includes:
 - A Sentinel-style HTTP adapter.
 - A JSONL evaluation format.
 - A small optimizer using threshold search and route-order search.
+- Per-label recall reporting and constraints.
+- Parallel-stage route search.
 - Heuristic demo guardrails.
 - Draft methodology and Sentinel proposal docs.
 
@@ -90,11 +92,33 @@ optimizer = GuardrailRouteOptimizer()
 result = optimizer.fit(
     records=records,
     guards=guards,
-    constraints=OptimizationConstraints(min_recall=0.98),
+    constraints=OptimizationConstraints(
+        min_recall=0.98,
+        min_label_recall={"pii": 0.99, "prompt_injection": 0.98},
+    ),
 )
 
 print(result.best_policy.to_dict())
 print(result.best_report.to_dict())
+```
+
+Policies can override thresholds globally, by label, by guardrail, or by guardrail-label pair:
+
+```json
+{
+  "low_threshold": 0.2,
+  "high_threshold": 0.8,
+  "thresholds": {
+    "labels": {
+      "pii": {"low": 0.05, "high": 0.75}
+    },
+    "guard_labels": {
+      "sentinel_prompt_injection": {
+        "prompt_injection": {"low": 0.2, "high": 0.75}
+      }
+    }
+  }
+}
 ```
 
 Export the optimized policy:

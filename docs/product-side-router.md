@@ -80,6 +80,77 @@ end of route with uncertainty -> uncertain
 end of route without uncertainty -> pass
 ```
 
+## Thresholds
+
+Policies have global thresholds:
+
+```json
+{
+  "low_threshold": 0.2,
+  "high_threshold": 0.8
+}
+```
+
+They can also override thresholds by label, by guardrail, or by guardrail-label pair:
+
+```json
+{
+  "thresholds": {
+    "labels": {
+      "pii": {"low": 0.05, "high": 0.75}
+    },
+    "guards": {
+      "sentinel_toxicity": {"low": 0.4, "high": 0.95}
+    },
+    "guard_labels": {
+      "sentinel_prompt_injection": {
+        "prompt_injection": {"low": 0.2, "high": 0.75}
+      }
+    }
+  }
+}
+```
+
+Threshold precedence is:
+
+```text
+guardrail + label
+guardrail
+label
+global policy threshold
+```
+
+This lets a product tune noisy guardrails conservatively while keeping strict thresholds for risks like PII.
+
+## Parallel Stages
+
+Routing is sequential by stage, but guards within a stage can run in parallel:
+
+```text
+local_pii
+-> prompt_injection + jailbreak + toxicity in parallel
+-> deep_context only if uncertain
+```
+
+The route policy expresses that as:
+
+```json
+{
+  "name": "light_sentinel_checks",
+  "guards": [
+    "sentinel_prompt_injection",
+    "sentinel_jailbreak",
+    "sentinel_toxicity"
+  ],
+  "parallel": true,
+  "condition": "always",
+  "allow_exit": true,
+  "resolves_uncertainty": false
+}
+```
+
+For latency accounting, a parallel stage uses the maximum guardrail latency in the stage, not the sum.
+
 ## Product Integration
 
 Example:
@@ -150,4 +221,3 @@ Version the route policy with the product release. A production rollout should b
 - How many requests exited early?
 - How many escalated to deep guardrails?
 - What were the false-positive and latency effects?
-

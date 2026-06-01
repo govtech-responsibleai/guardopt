@@ -3,6 +3,19 @@
   "name": "citizen_chatbot_product_side_v1",
   "low_threshold": 0.2,
   "high_threshold": 0.8,
+  "thresholds": {
+    "labels": {
+      "pii": {"low": 0.05, "high": 0.75}
+    },
+    "guards": {
+      "sentinel_jailbreak": {"low": 0.2, "high": 0.85}
+    },
+    "guard_labels": {
+      "sentinel_prompt_injection": {
+        "prompt_injection": {"low": 0.2, "high": 0.75}
+      }
+    }
+  },
   "stages": [
     {
       "name": "local_pii",
@@ -30,4 +43,3 @@
     }
   ]
 }
-

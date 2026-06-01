@@ -91,7 +91,7 @@ overall false-positive rate < current baseline
 p95 latency < current baseline
 ```
 
-The prototype currently supports overall recall constraints. Per-label constraints should be added before serious Sentinel evaluation.
+The current implementation supports per-label recall reporting and constraints, so use them for Sentinel testing rather than relying only on aggregate recall.
 
 ## Phase 5: Shadow Mode
 
@@ -137,4 +137,3 @@ Do not ship the router just because it is faster. Ship only if:
 - p95 latency decreases or Sentinel call volume decreases.
 - Route traces are complete.
 - Failure behavior is explicit and tested.
-

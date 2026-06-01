@@ -18,6 +18,7 @@ Compare every optimized route against:
 Primary:
 
 - Recall on unsafe records.
+- Recall by risk label.
 - False positive rate on safe records.
 - p95 latency.
 - Uncertain rate.
@@ -76,3 +77,13 @@ Each candidate route report should include:
 
 Do not ship a route because it has lower average latency. Ship only if it meets all safety constraints and improves the operating metric that matters, such as false positive rate or p95 latency.
 
+For Sentinel-style evaluation, prefer per-label safety floors:
+
+```text
+recall(prompt_injection) >= baseline
+recall(pii) >= baseline
+recall(jailbreak) >= baseline
+recall(abuse) >= baseline
+```
+
+Overall recall is not sufficient because a route can look strong in aggregate while weakening one severe risk category.

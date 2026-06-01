@@ -94,8 +94,12 @@ Candidate route policies vary:
 
 - Guardrail order.
 - Guardrail subset.
+- Parallel stage grouping.
 - Low threshold.
 - High threshold.
+- Label-specific thresholds.
+- Guardrail-specific thresholds.
+- Guardrail-label-specific thresholds.
 - Earliest stage where low-risk traffic can exit.
 - Sequential versus parallel stages.
 
@@ -108,6 +112,8 @@ recall(abuse) >= target
 p95_latency <= target
 false_positive_rate <= target
 ```
+
+Use per-label constraints for severe risks. Aggregate recall can hide a route that performs well overall but misses a small number of PII or prompt-injection cases.
 
 Rank feasible candidates by:
 
@@ -144,4 +150,3 @@ Production monitoring should include:
 - Language and channel breakdowns.
 
 Sampling should prioritize uncertain cases, policy disagreements, and user appeals.
-
