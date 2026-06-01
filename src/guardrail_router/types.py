@@ -51,6 +51,94 @@ class GuardrailResult:
 
 
 @dataclass(frozen=True)
+class ScoreThreshold:
+    low: float
+    high: float
+
+    def __post_init__(self) -> None:
+        if self.low >= self.high:
+            raise ValueError("threshold low must be lower than high")
+
+    def to_dict(self) -> dict[str, float]:
+        return {"low": self.low, "high": self.high}
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "ScoreThreshold":
+        return cls(low=float(payload["low"]), high=float(payload["high"]))
+
+
+@dataclass(frozen=True)
+class ThresholdConfig:
+    labels: dict[str, ScoreThreshold] = field(default_factory=dict)
+    guards: dict[str, ScoreThreshold] = field(default_factory=dict)
+    guard_labels: dict[str, dict[str, ScoreThreshold]] = field(default_factory=dict)
+
+    def threshold_for(
+        self,
+        guardrail: str,
+        label: str,
+        default: ScoreThreshold,
+    ) -> ScoreThreshold:
+        guard_label_threshold = self.guard_labels.get(guardrail, {}).get(label)
+        if guard_label_threshold is not None:
+            return guard_label_threshold
+
+        guard_threshold = self.guards.get(guardrail)
+        if guard_threshold is not None:
+            return guard_threshold
+
+        label_threshold = self.labels.get(label)
+        if label_threshold is not None:
+            return label_threshold
+
+        return default
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "labels": {
+                label: threshold.to_dict()
+                for label, threshold in sorted(self.labels.items())
+            },
+            "guards": {
+                guardrail: threshold.to_dict()
+                for guardrail, threshold in sorted(self.guards.items())
+            },
+            "guard_labels": {
+                guardrail: {
+                    label: threshold.to_dict()
+                    for label, threshold in sorted(label_thresholds.items())
+                }
+                for guardrail, label_thresholds in sorted(self.guard_labels.items())
+            },
+        }
+
+    def is_empty(self) -> bool:
+        return not self.labels and not self.guards and not self.guard_labels
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "ThresholdConfig":
+        if not payload:
+            return cls()
+        return cls(
+            labels={
+                str(label): ScoreThreshold.from_dict(threshold)
+                for label, threshold in dict(payload.get("labels", {})).items()
+            },
+            guards={
+                str(guardrail): ScoreThreshold.from_dict(threshold)
+                for guardrail, threshold in dict(payload.get("guards", {})).items()
+            },
+            guard_labels={
+                str(guardrail): {
+                    str(label): ScoreThreshold.from_dict(threshold)
+                    for label, threshold in dict(label_thresholds).items()
+                }
+                for guardrail, label_thresholds in dict(payload.get("guard_labels", {})).items()
+            },
+        )
+
+
+@dataclass(frozen=True)
 class RouteStage:
     name: str
     guards: tuple[str, ...]
@@ -87,6 +175,7 @@ class RoutePolicy:
     stages: tuple[RouteStage, ...]
     low_threshold: float = 0.2
     high_threshold: float = 0.8
+    thresholds: ThresholdConfig = field(default_factory=ThresholdConfig)
     schema_version: str = ROUTE_POLICY_SCHEMA_VERSION
 
     @classmethod
@@ -116,13 +205,16 @@ class RoutePolicy:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "name": self.name,
             "low_threshold": self.low_threshold,
             "high_threshold": self.high_threshold,
             "stages": [stage.to_dict() for stage in self.stages],
         }
+        if not self.thresholds.is_empty():
+            payload["thresholds"] = self.thresholds.to_dict()
+        return payload
 
     def to_json(self, indent: int | None = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
@@ -147,6 +239,7 @@ class RoutePolicy:
             name=str(payload["name"]),
             low_threshold=low_threshold,
             high_threshold=high_threshold,
+            thresholds=ThresholdConfig.from_dict(payload.get("thresholds")),
             stages=tuple(RouteStage.from_dict(stage) for stage in payload["stages"]),
         )
 
@@ -157,6 +250,51 @@ class RoutePolicy:
     @classmethod
     def from_file(cls, path: str | Path) -> "RoutePolicy":
         return cls.from_json(Path(path).read_text(encoding="utf-8"))
+
+    @property
+    def default_threshold(self) -> ScoreThreshold:
+        return ScoreThreshold(low=self.low_threshold, high=self.high_threshold)
+
+    def threshold_for(self, guardrail: str, label: str) -> ScoreThreshold:
+        return self.thresholds.threshold_for(
+            guardrail=guardrail,
+            label=label,
+            default=self.default_threshold,
+        )
+
+    def classify_result(
+        self,
+        result: GuardrailResult,
+    ) -> tuple[GuardrailDecision, tuple[str, ...]]:
+        if not result.scores:
+            if result.decision == GuardrailDecision.PASS:
+                return GuardrailDecision.PASS, ()
+            return result.decision, result.labels
+
+        active_labels: list[str] = []
+        decision = GuardrailDecision.PASS
+
+        for label, score in result.scores.items():
+            threshold = self.threshold_for(result.guardrail, label)
+            if score >= threshold.high:
+                active_labels.append(label)
+                decision = GuardrailDecision.FAIL
+            elif score > threshold.low:
+                active_labels.append(label)
+                if decision != GuardrailDecision.FAIL:
+                    decision = GuardrailDecision.UNCERTAIN
+
+        return decision, tuple(sorted(set(active_labels)))
+
+    def active_labels_for_results(
+        self,
+        results: tuple[GuardrailResult, ...] | list[GuardrailResult],
+    ) -> tuple[str, ...]:
+        labels: list[str] = []
+        for result in results:
+            _, result_labels = self.classify_result(result)
+            labels.extend(result_labels)
+        return tuple(sorted(set(labels)))
 
 
 @dataclass(frozen=True)

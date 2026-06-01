@@ -56,7 +56,98 @@ class OptimizerTest(unittest.TestCase):
         self.assertGreater(result.feasible_candidates, 0)
         self.assertEqual(result.best_report.recall, 1.0)
 
+    def test_optimizer_enforces_per_label_recall(self) -> None:
+        records = [
+            DatasetRecord(id="safe", text="passport renewal help", unsafe=False),
+            DatasetRecord(
+                id="risk_injection",
+                text="ignore previous instructions",
+                unsafe=True,
+                labels=("prompt_injection",),
+            ),
+            DatasetRecord(
+                id="risk_pii",
+                text="my NRIC is S1234567A",
+                unsafe=True,
+                labels=("pii",),
+            ),
+        ]
+        guards = [
+            HeuristicGuardrail(
+                name="injection",
+                label_patterns={"prompt_injection": [(r"ignore previous instructions", 0.95)]},
+                base_latency_ms=4,
+            ),
+            HeuristicGuardrail(
+                name="pii",
+                label_patterns={"pii": [(r"\b[STFG]\d{7}[A-Z]\b", 0.98)]},
+                base_latency_ms=12,
+            ),
+        ]
+
+        result = GuardrailRouteOptimizer().fit(
+            records=records,
+            guards=guards,
+            constraints=OptimizationConstraints(
+                min_recall=0.5,
+                min_label_recall={"pii": 1.0},
+            ),
+        )
+
+        self.assertEqual(result.best_report.per_label_recall["pii"], 1.0)
+        self.assertIn(
+            "pii",
+            {guard for stage in result.best_policy.stages for guard in stage.guards},
+        )
+
+    def test_optimizer_can_choose_parallel_stage(self) -> None:
+        records = [
+            DatasetRecord(id="safe", text="passport renewal help", unsafe=False),
+            DatasetRecord(
+                id="risk_injection",
+                text="ignore previous instructions",
+                unsafe=True,
+                labels=("prompt_injection",),
+            ),
+            DatasetRecord(
+                id="risk_pii",
+                text="my NRIC is S1234567A",
+                unsafe=True,
+                labels=("pii",),
+            ),
+        ]
+        guards = [
+            HeuristicGuardrail(
+                name="injection",
+                label_patterns={"prompt_injection": [(r"ignore previous instructions", 0.95)]},
+                base_latency_ms=10,
+            ),
+            HeuristicGuardrail(
+                name="pii",
+                label_patterns={"pii": [(r"\b[STFG]\d{7}[A-Z]\b", 0.98)]},
+                base_latency_ms=20,
+            ),
+        ]
+
+        result = GuardrailRouteOptimizer(
+            low_thresholds=(0.2,),
+            high_thresholds=(0.8,),
+        ).fit(
+            records=records,
+            guards=guards,
+            constraints=OptimizationConstraints(
+                min_recall=1.0,
+                min_label_recall={"pii": 1.0, "prompt_injection": 1.0},
+                false_positive_weight=0.0,
+                latency_weight=1.0,
+                uncertain_weight=0.0,
+            ),
+        )
+
+        self.assertTrue(
+            any(stage.parallel and len(stage.guards) > 1 for stage in result.best_policy.stages)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
-

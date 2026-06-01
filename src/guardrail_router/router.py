@@ -82,8 +82,8 @@ class GuardrailRouter:
                 latency_ms += sum(result.latency_ms for result in stage_results)
             cost += sum(result.cost for result in stage_results)
 
-            stage_max_score = max((result.max_score for result in stage_results), default=0.0)
-            if stage_max_score >= self.policy.high_threshold:
+            stage_decision, _ = self._stage_signal(stage_results)
+            if stage_decision == GuardrailDecision.FAIL:
                 return self._decision(
                     GuardrailDecision.FAIL,
                     results,
@@ -95,7 +95,7 @@ class GuardrailRouter:
                     "high_threshold_reached",
                 )
 
-            if stage_max_score > self.policy.low_threshold:
+            if stage_decision == GuardrailDecision.UNCERTAIN:
                 uncertain = True
             elif stage.resolves_uncertainty:
                 uncertain = False
@@ -150,6 +150,23 @@ class GuardrailRouter:
         for guard_name in guard_names:
             results.append(await evaluate_guardrail(self.guards[guard_name], request))
         return results
+
+    def _stage_signal(
+        self,
+        stage_results: list[GuardrailResult],
+    ) -> tuple[GuardrailDecision, tuple[str, ...]]:
+        decision = GuardrailDecision.PASS
+        labels: list[str] = []
+
+        for result in stage_results:
+            result_decision, result_labels = self.policy.classify_result(result)
+            labels.extend(result_labels)
+            if result_decision == GuardrailDecision.FAIL:
+                decision = GuardrailDecision.FAIL
+            elif result_decision == GuardrailDecision.UNCERTAIN and decision != GuardrailDecision.FAIL:
+                decision = GuardrailDecision.UNCERTAIN
+
+        return decision, tuple(sorted(set(labels)))
 
     def run_sync(self, request: dict[str, Any]) -> RoutedDecision:
         return asyncio.run(self.run(request))

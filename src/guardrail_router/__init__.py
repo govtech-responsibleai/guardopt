@@ -18,6 +18,8 @@ from guardrail_router.types import (
     RouteStage,
     RouteTrace,
     RoutedDecision,
+    ScoreThreshold,
+    ThresholdConfig,
 )
 
 __all__ = [
@@ -37,7 +39,9 @@ __all__ = [
     "RouteStage",
     "RouteTrace",
     "RoutedDecision",
+    "ScoreThreshold",
     "SentinelGuardrail",
+    "ThresholdConfig",
     "evaluate_policy",
     "load_jsonl",
 ]

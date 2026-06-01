@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from guardrail_router.guards import Guardrail
 from guardrail_router.router import GuardrailRouter
@@ -27,6 +27,10 @@ class EvalReport:
     fail_rate: float
     avg_latency_ms: float
     p95_latency_ms: float
+    per_label_recall: dict[str, float] = field(default_factory=dict)
+    per_label_support: dict[str, int] = field(default_factory=dict)
+    per_label_true_positive: dict[str, int] = field(default_factory=dict)
+    per_label_false_negative: dict[str, int] = field(default_factory=dict)
 
     def objective(
         self,
@@ -40,7 +44,7 @@ class EvalReport:
             + uncertain_weight * self.uncertain_rate
         )
 
-    def to_dict(self) -> dict[str, float | int]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total": self.total,
             "positives": self.positives,
@@ -57,7 +61,20 @@ class EvalReport:
             "fail_rate": self.fail_rate,
             "avg_latency_ms": self.avg_latency_ms,
             "p95_latency_ms": self.p95_latency_ms,
+            "per_label_recall": self.per_label_recall,
+            "per_label_support": self.per_label_support,
+            "per_label_true_positive": self.per_label_true_positive,
+            "per_label_false_negative": self.per_label_false_negative,
         }
+
+
+@dataclass(frozen=True)
+class EvaluationDecision:
+    actual_unsafe: bool
+    predicted_positive: bool
+    decision: GuardrailDecision
+    actual_labels: tuple[str, ...] = ()
+    predicted_labels: tuple[str, ...] = ()
 
 
 def load_jsonl(path: str | Path) -> list[DatasetRecord]:
@@ -97,36 +114,71 @@ def evaluate_policy(
     for record in records:
         routed = router.run_sync(record.to_request())
         predicted_positive = routed.decision in positive_decisions
-        decisions.append((record.unsafe, predicted_positive, routed.decision))
+        predicted_labels = (
+            policy.active_labels_for_results(routed.results)
+            if predicted_positive
+            else ()
+        )
+        decisions.append(
+            EvaluationDecision(
+                actual_unsafe=record.unsafe,
+                predicted_positive=predicted_positive,
+                decision=routed.decision,
+                actual_labels=record.labels,
+                predicted_labels=predicted_labels,
+            )
+        )
         latencies.append(routed.trace.latency_ms)
 
     return build_report(decisions=decisions, latencies=latencies)
 
 
 def build_report(
-    decisions: list[tuple[bool, bool, GuardrailDecision]],
+    decisions: list[EvaluationDecision],
     latencies: list[float],
 ) -> EvalReport:
     total = len(decisions)
-    positives = sum(1 for actual, _, _ in decisions if actual)
+    positives = sum(1 for decision in decisions if decision.actual_unsafe)
     negatives = total - positives
-    true_positive = sum(1 for actual, predicted, _ in decisions if actual and predicted)
-    false_positive = sum(1 for actual, predicted, _ in decisions if not actual and predicted)
-    true_negative = sum(1 for actual, predicted, _ in decisions if not actual and not predicted)
-    false_negative = sum(1 for actual, predicted, _ in decisions if actual and not predicted)
+    true_positive = sum(
+        1 for decision in decisions if decision.actual_unsafe and decision.predicted_positive
+    )
+    false_positive = sum(
+        1 for decision in decisions if not decision.actual_unsafe and decision.predicted_positive
+    )
+    true_negative = sum(
+        1 for decision in decisions if not decision.actual_unsafe and not decision.predicted_positive
+    )
+    false_negative = sum(
+        1 for decision in decisions if decision.actual_unsafe and not decision.predicted_positive
+    )
 
     recall = true_positive / positives if positives else 1.0
     precision = true_positive / (true_positive + false_positive) if true_positive + false_positive else 1.0
     false_positive_rate = false_positive / negatives if negatives else 0.0
-    pass_rate = sum(1 for _, _, decision in decisions if decision == GuardrailDecision.PASS) / total if total else 0.0
-    uncertain_rate = (
-        sum(1 for _, _, decision in decisions if decision == GuardrailDecision.UNCERTAIN) / total
+    pass_rate = (
+        sum(1 for decision in decisions if decision.decision == GuardrailDecision.PASS) / total
         if total
         else 0.0
     )
-    fail_rate = sum(1 for _, _, decision in decisions if decision == GuardrailDecision.FAIL) / total if total else 0.0
+    uncertain_rate = (
+        sum(1 for decision in decisions if decision.decision == GuardrailDecision.UNCERTAIN) / total
+        if total
+        else 0.0
+    )
+    fail_rate = (
+        sum(1 for decision in decisions if decision.decision == GuardrailDecision.FAIL) / total
+        if total
+        else 0.0
+    )
     avg_latency_ms = sum(latencies) / len(latencies) if latencies else 0.0
     p95_latency_ms = percentile(latencies, 95)
+    (
+        per_label_recall,
+        per_label_support,
+        per_label_true_positive,
+        per_label_false_negative,
+    ) = label_recall(decisions)
 
     return EvalReport(
         total=total,
@@ -144,7 +196,44 @@ def build_report(
         fail_rate=fail_rate,
         avg_latency_ms=avg_latency_ms,
         p95_latency_ms=p95_latency_ms,
+        per_label_recall=per_label_recall,
+        per_label_support=per_label_support,
+        per_label_true_positive=per_label_true_positive,
+        per_label_false_negative=per_label_false_negative,
     )
+
+
+def label_recall(
+    decisions: list[EvaluationDecision],
+) -> tuple[dict[str, float], dict[str, int], dict[str, int], dict[str, int]]:
+    labels = sorted(
+        {
+            label
+            for decision in decisions
+            for label in decision.actual_labels
+        }
+    )
+    support: dict[str, int] = {}
+    true_positive: dict[str, int] = {}
+    false_negative: dict[str, int] = {}
+    recall: dict[str, float] = {}
+
+    for label in labels:
+        labelled_decisions = [
+            decision
+            for decision in decisions
+            if label in decision.actual_labels
+        ]
+        support[label] = len(labelled_decisions)
+        true_positive[label] = sum(
+            1
+            for decision in labelled_decisions
+            if decision.predicted_positive and label in decision.predicted_labels
+        )
+        false_negative[label] = support[label] - true_positive[label]
+        recall[label] = true_positive[label] / support[label] if support[label] else 1.0
+
+    return recall, support, true_positive, false_negative
 
 
 def percentile(values: list[float], percentile_value: int) -> float:
@@ -153,4 +242,3 @@ def percentile(values: list[float], percentile_value: int) -> float:
     ordered = sorted(values)
     index = round((percentile_value / 100) * (len(ordered) - 1))
     return ordered[index]
-

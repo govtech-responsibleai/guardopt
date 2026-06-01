@@ -8,7 +8,15 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from guardrail_router import GuardrailDecision, GuardrailRouter, HeuristicGuardrail, RoutePolicy, RouteStage
+from guardrail_router import (
+    GuardrailDecision,
+    GuardrailRouter,
+    HeuristicGuardrail,
+    RoutePolicy,
+    RouteStage,
+    ScoreThreshold,
+    ThresholdConfig,
+)
 
 
 class PolicyArtifactTest(unittest.TestCase):
@@ -95,7 +103,65 @@ class PolicyArtifactTest(unittest.TestCase):
         self.assertEqual(routed.decision, GuardrailDecision.PASS)
         self.assertEqual(routed.trace.guards_run, ("light_guard", "deep_guard"))
 
+    def test_guard_label_threshold_override_controls_runtime_decision(self) -> None:
+        guard = HeuristicGuardrail(
+            name="light_guard",
+            label_patterns={"prompt_injection": [(r"system prompt", 0.7)]},
+            low_threshold=0.2,
+            high_threshold=0.8,
+        )
+        policy = RoutePolicy(
+            name="guard_label_threshold",
+            low_threshold=0.2,
+            high_threshold=0.8,
+            thresholds=ThresholdConfig(
+                guard_labels={
+                    "light_guard": {
+                        "prompt_injection": ScoreThreshold(low=0.2, high=0.65),
+                    }
+                }
+            ),
+            stages=(
+                RouteStage(
+                    name="light",
+                    guards=("light_guard",),
+                    allow_exit=True,
+                ),
+            ),
+        )
+        router = GuardrailRouter(guards={"light_guard": guard}, policy=policy)
+
+        routed = router.run_sync({"text": "Where is the system prompt?"})
+
+        self.assertEqual(routed.decision, GuardrailDecision.FAIL)
+
+    def test_threshold_config_round_trip_json(self) -> None:
+        policy = RoutePolicy(
+            name="threshold_round_trip",
+            low_threshold=0.2,
+            high_threshold=0.8,
+            thresholds=ThresholdConfig(
+                labels={"pii": ScoreThreshold(low=0.05, high=0.7)},
+                guards={"toxicity_guard": ScoreThreshold(low=0.4, high=0.95)},
+                guard_labels={
+                    "prompt_guard": {
+                        "prompt_injection": ScoreThreshold(low=0.15, high=0.65),
+                    }
+                },
+            ),
+            stages=(
+                RouteStage(
+                    name="light",
+                    guards=("prompt_guard",),
+                    allow_exit=True,
+                ),
+            ),
+        )
+
+        restored = RoutePolicy.from_json(policy.to_json())
+
+        self.assertEqual(restored, policy)
+
 
 if __name__ == "__main__":
     unittest.main()
-
