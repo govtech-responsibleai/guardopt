@@ -42,6 +42,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Declared, and deliberately empty. The Sentinel adapter speaks HTTP through stdlib
+# `urllib` and models its payloads with pydantic, which the core already requires — so
+# there is genuinely nothing extra to install today. The extra exists so that
+# `guardopt[sentinel]` is a stable thing to depend on: if the adapter later needs a real
+# HTTP client, it lands here and existing callers pick it up without editing their
+# requirements. `guardopt.sentinel` is importable either way; what keeps the core generic
+# is that nothing under `guardopt.domain` imports it, which a test asserts.
+sentinel = []
+
 dev = [
   "pytest>=8",
 ]

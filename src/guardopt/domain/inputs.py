@@ -118,6 +118,10 @@ class TestCaseGuardrailResults(BaseModel):
     an ordinary unweighted integer count, per the brief's §8.
     """
 
+    #: Not a test class. The name begins with "Test", so pytest tries to collect it and
+    #: then warns that it cannot, because it has an __init__. This says so up front.
+    __test__ = False
+
     test_case_id: str = Field(min_length=1)
 
     # BLOCK is the positive class.
