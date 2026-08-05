@@ -1,39 +1,27 @@
 """Scored test cases in, draft Sentinel policies out.
 
-This is the only place the pipeline is assembled, and the order is load-bearing:
+**This is `optimise()` plus a mapping step, and nothing else.** The search, the selection,
+the warning ladder and the explanations all happen in `guardopt.optimise`, which knows
+nothing about Sentinel. This module adds exactly one thing: turning each recommended
+policy into a body Sentinel would accept.
 
-    search  ->  select  ->  warning ladder  ->  explain  ->  map to Sentinel
-
-**The ladder is not optional.** It is a separate step because warning bands are derived
-from the profile ladder rather than searched (see `domain/warning_bands.py`), and it is
-easy to leave out — a throwaway script did exactly that during this build and produced
-policies with no warning bands at all: a quieter policy than the one the optimiser chose,
-and a different body from the one that had been approved. Having one function that always
-runs all five steps is the fix.
+That layering is deliberate and it is tested. Two pipelines that each assemble the same
+four steps are two pipelines that eventually recommend different policies for the same
+data — and the version of this file that predated `optimise()` did assemble them itself.
 
 **Nothing here writes to Sentinel.** The result is a set of bodies a human may choose to
 create. There is no client call, no HTTP, no deploy — `test_guardrail_service.py` asserts
 the module exposes nothing that even sounds like one.
-
-**Layering.** `domain/` stays Sentinel-agnostic; `sentinel/` knows the API but not the
-search. This module is the only thing that knows both, which is why the disclosure of
-Sentinel-forced warning bands is composed here rather than inside the explanation.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
-from guardopt.domain.explain import PolicyExplanation, explain_selection
+from guardopt.domain.explain import PolicyExplanation
 from guardopt.domain.inputs import OptimiserRequest
-from guardopt.domain.search import (
-    EvaluatedPolicy,
-    PolicyEvaluator,
-    SearchDiagnostics,
-    search_policies,
-)
-from guardopt.domain.selection import select_profiles
+from guardopt.domain.search import EvaluatedPolicy, SearchDiagnostics
 from guardopt.domain.types import RecommendationProfile, SearchMethod
-from guardopt.domain.warning_bands import apply_warning_ladder
+from guardopt.optimise import optimise
 from guardopt.sentinel.mapping import (
     PolicyNotExpressibleError,
     guardrails_given_a_silent_band,
@@ -52,9 +40,9 @@ __all__ = [
 class GuardrailPolicyRecommendation:
     """One profile's answer: the body to create, and everything said about it.
 
-    `policy` carries only what Sentinel stores. Every optimiser-side concept — the profile, the
-    metrics, the explanation — lives out here on the wrapper, so the body stays exactly
-    what was measured and nothing extra travels to the API.
+    `policy` carries only what Sentinel stores. Every optimiser-side concept — the
+    profile, the metrics, the explanation — lives out here on the wrapper, so the body
+    stays exactly what was measured and nothing extra travels to the API.
     """
 
     profile: RecommendationProfile
@@ -148,25 +136,18 @@ def recommend_policies(
 ) -> RecommendationResult:
     """Up to three draft policies — Minimal, Balanced, Strict — measured on `request`.
 
-    Returns fewer than three when fewer than three behaviourally distinct policies exist,
-    with the reason in `warnings`. It never invents an option to fill the third card.
+    Identical to `optimise()` in what it recommends; it only adds the Sentinel body. A
+    caller with no Sentinel deployment should call `optimise()` and skip this module.
     """
-    policies, diagnostics = search_policies(request)
-    selection = select_profiles(policies)
+    result = optimise(request)
 
-    definitions: Mapping[str, ...] = request.guardrail_by_name
+    definitions = request.guardrail_by_name
     observed = _observed_scores_by_guardrail(request)
 
-    # Warning bands are derived after the blocking search, not during it. The evaluator is
-    # rebuilt rather than threaded out of the search: re-simulating three policies is
-    # cheap, and the alternative is a return value that exists only to be passed here.
-    ladder = apply_warning_ladder(
-        selection.selections, definitions, PolicyEvaluator(request).evaluate
-    )
-
     recommendations: list[GuardrailPolicyRecommendation] = []
-    for entry in ladder.selections:
-        invented = guardrails_given_a_silent_band(entry.policy.candidate)
+    for recommendation in result.recommendations:
+        candidate = recommendation.evaluated.candidate
+        invented = guardrails_given_a_silent_band(candidate)
 
         # Mapping can legitimately fail: Sentinel cannot express every policy the
         # optimiser can measure (a lower-is-riskier guardrail is the known case). The
@@ -177,8 +158,8 @@ def recommend_policies(
         not_expressible: str | None = None
         try:
             policy = to_sentinel_policy(
-                entry.profile,
-                entry.policy.candidate,
+                recommendation.profile,
+                candidate,
                 definitions,
                 observed_scores=observed,
                 system_name=system_name,
@@ -188,7 +169,7 @@ def recommend_policies(
         except PolicyNotExpressibleError as error:
             not_expressible = str(error)
 
-        explanation = explain_selection(entry, definitions, diagnostics)
+        explanation = recommendation.explanation
         extra_limitations = tuple(
             limitation
             for limitation in (
@@ -204,12 +185,12 @@ def recommend_policies(
 
         recommendations.append(
             GuardrailPolicyRecommendation(
-                profile=entry.profile,
+                profile=recommendation.profile,
                 policy=policy,
-                evaluated=entry.policy,
+                evaluated=recommendation.evaluated,
                 explanation=explanation,
-                used_fallback=entry.used_fallback,
-                fallback_reason=getattr(entry, "fallback_reason", None),
+                used_fallback=recommendation.used_fallback,
+                fallback_reason=recommendation.fallback_reason,
                 # Only meaningful when a body was produced: if the mapping never got as
                 # far as fitting bands, claiming one was invented would be false.
                 guardrails_with_an_invented_warning_band=invented if policy else (),
@@ -219,10 +200,8 @@ def recommend_policies(
 
     return RecommendationResult(
         recommendations=tuple(recommendations),
-        search_method=diagnostics.method,
-        diagnostics=diagnostics,
-        # The ladder's notes are kept: "this profile has no warning bands because nothing
-        # blocks harder than it" is a real observation about the recommendation, not chatter.
-        warnings=selection.warnings + ladder.notes,
-        pareto_candidate_count=selection.pareto_candidate_count,
+        search_method=result.search_method,
+        diagnostics=result.diagnostics,
+        warnings=result.warnings,
+        pareto_candidate_count=result.pareto_candidate_count,
     )
