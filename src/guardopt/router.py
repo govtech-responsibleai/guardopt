@@ -4,8 +4,8 @@ import asyncio
 from pathlib import Path
 from typing import Any, Mapping
 
-from guardrail_router.guards import Guardrail, evaluate_guardrail
-from guardrail_router.types import (
+from guardopt.guards import Guardrail, evaluate_guardrail
+from guardopt.types import (
     GuardrailDecision,
     GuardrailResult,
     RoutePolicy,

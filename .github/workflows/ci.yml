@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Test
+        run: pytest -q
+
+  # The core must stay importable with no optional dependency installed. This job is the
+  # thing that catches a stray `import httpx` or `from guardopt.sentinel import ...`
+  # landing in the pure core, where it would break every user who installed plain
+  # `pip install guardopt`.
+  core-imports-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install without extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Import the core
+        run: python -c "import guardopt; print(guardopt.__name__, 'imports clean')"

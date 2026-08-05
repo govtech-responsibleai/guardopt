@@ -1,15 +1,15 @@
-"""Lightweight routing and optimization for cascaded LLM guardrails."""
+"""Find the guardrail policy that blocks what matters and lets the rest through."""
 
-from guardrail_router.adapters import HttpJsonGuardrail, SentinelGuardrail
-from guardrail_router.evaluation import EvalReport, evaluate_policy, load_jsonl
-from guardrail_router.guards import Guardrail, HeuristicGuardrail
-from guardrail_router.optimizer import (
+from guardopt.adapters import HttpJsonGuardrail, SentinelGuardrail
+from guardopt.evaluation import EvalReport, evaluate_policy, load_jsonl
+from guardopt.guards import Guardrail, HeuristicGuardrail
+from guardopt.optimizer import (
     GuardrailRouteOptimizer,
     OptimizationConstraints,
     OptimizationResult,
 )
-from guardrail_router.router import GuardrailRouter
-from guardrail_router.types import (
+from guardopt.router import GuardrailRouter
+from guardopt.types import (
     DatasetRecord,
     GuardrailDecision,
     GuardrailResult,

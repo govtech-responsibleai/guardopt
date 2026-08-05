@@ -1,31 +1,41 @@
-# Guardrail Router
+# guardopt
 
-Guardrail Router is a lightweight prototype for optimizing which LLM guardrails to run, in what order, and when to escalate to stronger checks.
+Find the guardrail policy that blocks what matters and lets the rest through.
 
-The package is intentionally not another guardrail framework. It assumes teams already have guardrails such as PII detectors, prompt-injection classifiers, toxicity checks, grounding checks, or policy-specific validators. Its job is to benchmark those guardrails and produce a route policy that reduces false positives and latency while preserving safety recall.
-
-The intended deployment model is product-side routing:
+`guardopt` is intentionally not another guardrail framework. It assumes you already have
+guardrails — PII detectors, prompt-injection classifiers, toxicity checks, grounding
+checks, policy-specific validators. Its job is to measure them against your own labelled
+traffic and tell you where to set them.
 
 ```text
-Product backend -> guardrail-router -> selected Sentinel/local guardrails
+Product backend -> guardopt -> your guardrails
 ```
 
-Sentinel can continue to provide Guardrails-as-a-Service. Product teams install the router package, own their route policy artifact, and decide which Sentinel guardrails to call for their traffic.
+## Current status
 
-## Current Status
+**This package is mid-merge and the API is not yet stable.** It is being combined with a
+larger optimiser engine; `0.2.0.dev0` is the first version under the `guardopt` name.
+Until `0.2.0` lands, treat every import path as provisional.
 
-This repo is a prototype scaffold. It includes:
+What works today:
 
-- A guardrail adapter interface.
-- A runtime router with route traces.
-- A portable `route-policy.json` artifact.
-- A Sentinel-style HTTP adapter.
+- A guardrail adapter interface, and a runtime router with route traces.
+- A portable, versioned route policy artifact.
+- An HTTP guardrail adapter.
 - A JSONL evaluation format.
-- A small optimizer using threshold search and route-order search.
+- An optimizer over thresholds and route order, with parallel stages.
 - Per-label recall reporting and constraints.
-- Parallel-stage route search.
-- Heuristic demo guardrails.
-- Draft methodology and Sentinel proposal docs.
+- Heuristic guardrails for demos and tests.
+
+What is arriving in the merge:
+
+- Direction-aware thresholds, so a guardrail where *lower* means riskier works correctly.
+- A first-class ERROR outcome — a guardrail that could not run is never treated as a pass.
+- Threshold candidates derived from your observed scores rather than a fixed grid.
+- Candidate-space sizing, so an oversized search is refused rather than left to hang.
+- Full confusion-matrix metrics, including a separate warning band.
+- Three recommended policies on the Pareto frontier — Minimal, Balanced, Strict — with
+  written explanations, rather than a single winner.
 
 ## Why This Exists
 
@@ -66,7 +76,7 @@ python3 -m unittest discover tests
 ## Example
 
 ```python
-from guardrail_router import (
+from guardopt import (
     GuardrailRouteOptimizer,
     HeuristicGuardrail,
     OptimizationConstraints,
@@ -130,7 +140,7 @@ result.best_policy.to_file("route-policy.json")
 Load it inside a product backend:
 
 ```python
-from guardrail_router import GuardrailRouter, SentinelGuardrail
+from guardopt import GuardrailRouter, SentinelGuardrail
 
 router = GuardrailRouter.from_policy_file(
     "route-policy.json",

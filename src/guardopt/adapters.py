@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Mapping
 
-from guardrail_router.types import GuardrailDecision, GuardrailResult
+from guardopt.types import GuardrailDecision, GuardrailResult
 
 
 class HttpJsonGuardrail:

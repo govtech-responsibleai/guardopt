@@ -5,7 +5,7 @@ import re
 import time
 from typing import Any, Protocol, Sequence
 
-from guardrail_router.types import GuardrailDecision, GuardrailResult
+from guardopt.types import GuardrailDecision, GuardrailResult
 
 
 class Guardrail(Protocol):

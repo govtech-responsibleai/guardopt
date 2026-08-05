@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-from guardrail_router.guards import Guardrail
-from guardrail_router.router import GuardrailRouter
-from guardrail_router.types import DatasetRecord, GuardrailDecision, RoutePolicy
+from guardopt.guards import Guardrail
+from guardopt.router import GuardrailRouter
+from guardopt.types import DatasetRecord, GuardrailDecision, RoutePolicy
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from guardrail_router import GuardrailRouter, HeuristicGuardrail  # noqa: E402
+from guardopt import GuardrailRouter, HeuristicGuardrail  # noqa: E402
 
 
 def build_guards() -> dict[str, HeuristicGuardrail]:

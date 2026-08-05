@@ -3,20 +3,57 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "guardrail-router"
-version = "0.1.0"
-description = "Lightweight routing and optimization for cascaded LLM guardrails."
+name = "guardopt"
+version = "0.2.0.dev0"
+description = "Find the guardrail policy that blocks what matters and lets the rest through."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
-  { name = "Guardrail Router Contributors" }
+  { name = "guardopt contributors" }
 ]
 license = { text = "MIT" }
+keywords = [
+  "guardrails",
+  "llm",
+  "llm-safety",
+  "content-moderation",
+  "threshold-optimization",
+  "policy",
+  "evaluation",
+  "routing",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
+
+# The core is deliberately dependency-free at this point. `pydantic` arrives with the
+# input-validation layer in P1; the `http` and `sentinel` extras are declared in the
+# slices that give them content (P12 and P2), not speculatively here.
 dependencies = []
 
 [project.optional-dependencies]
-dev = []
+dev = [
+  "pytest>=8",
+]
+
+[project.urls]
+Homepage = "https://github.com/govtech-responsibleai/guardrails-routing"
+Repository = "https://github.com/govtech-responsibleai/guardrails-routing"
+Issues = "https://github.com/govtech-responsibleai/guardrails-routing/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+# `src` on the path means the suite runs from a clean checkout with no install step,
+# which is what CI does and what a contributor does on their first clone.
+pythonpath = ["src"]
+testpaths = ["tests"]

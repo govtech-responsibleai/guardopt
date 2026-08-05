@@ -156,7 +156,7 @@ For latency accounting, a parallel stage uses the maximum guardrail latency in t
 Example:
 
 ```python
-from guardrail_router import GuardrailRouter, SentinelGuardrail
+from guardopt import GuardrailRouter, SentinelGuardrail
 
 router = GuardrailRouter.from_policy_file(
     "route-policy.json",

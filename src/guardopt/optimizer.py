@@ -5,9 +5,9 @@ import itertools
 from dataclasses import dataclass, field
 from typing import Any
 
-from guardrail_router.evaluation import EvalReport, EvaluationDecision, build_report
-from guardrail_router.guards import Guardrail, evaluate_guardrail
-from guardrail_router.types import (
+from guardopt.evaluation import EvalReport, EvaluationDecision, build_report
+from guardopt.guards import Guardrail, evaluate_guardrail
+from guardopt.types import (
     DatasetRecord,
     GuardrailDecision,
     GuardrailResult,
