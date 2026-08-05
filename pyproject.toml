@@ -34,10 +34,12 @@ classifiers = [
   "Typing :: Typed",
 ]
 
-# The core is deliberately dependency-free at this point. `pydantic` arrives with the
-# input-validation layer in P1; the `http` and `sentinel` extras are declared in the
-# slices that give them content (P12 and P2), not speculatively here.
-dependencies = []
+# pydantic is the core's only runtime dependency — it validates the optimiser's input
+# contract. The `http` and `sentinel` extras are declared in the slices that give them
+# content (P12 and P2), not speculatively here.
+dependencies = [
+  "pydantic>=2.7",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -57,3 +59,9 @@ where = ["src"]
 # which is what CI does and what a contributor does on their first clone.
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+  # Carried over from the Litmus backend, where it separated unit tests from ones needing
+  # a database. Every test here is a unit test, so the mark currently selects everything;
+  # it is registered rather than stripped so the ported files stay verbatim and reviewable.
+  "unit: a test with no database, network or external service",
+]
