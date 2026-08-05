@@ -10,9 +10,9 @@ import inspect
 
 import pytest
 
+from guardopt.domain.inputs import GuardrailDefinition
 from guardopt.domain.simulation import GuardrailThresholds, PolicyCandidate
-from guardopt.domain.types import RecommendationProfile
-from guardopt.sentinel.catalogue import default_catalogue
+from guardopt.domain.types import RecommendationProfile, ScoreDirection
 from guardopt.sentinel.client import (
     FakeSentinelPolicyClient,
     PolicyValidationResult,
@@ -113,11 +113,19 @@ def test_the_client_module_never_touches_a_credential():
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def test_listing_guardrails_returns_the_catalogue():
-    client = FakeSentinelPolicyClient()
-    assert [g.name for g in client.list_guardrails()] == [
-        g.name for g in default_catalogue()
-    ]
+def test_listing_guardrails_returns_what_the_fake_was_given():
+    """The fake ships no guardrails of its own — this package ships no catalogue — so a
+    caller states what it is pretending Sentinel offers."""
+    assert FakeSentinelPolicyClient().list_guardrails() == ()
+
+    offered = GuardrailDefinition(
+        name="vendor/toxicity",
+        score_direction=ScoreDirection.HIGHER_IS_RISKIER,
+        minimum_score=0.0,
+        maximum_score=1.0,
+    )
+    client = FakeSentinelPolicyClient(guardrails=(offered,))
+    assert [g.name for g in client.list_guardrails()] == ["vendor/toxicity"]
     assert client.list_calls == 1
 
 

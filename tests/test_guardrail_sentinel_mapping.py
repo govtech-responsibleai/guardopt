@@ -24,7 +24,6 @@ What the real API established, and what each rule here defends:
 """
 
 import ast
-import inspect
 import pathlib
 
 import pytest
@@ -55,16 +54,16 @@ STRICT = RecommendationProfile.STRICT
 #: The body from the working request against sentinel.example.com, kept verbatim
 #: so the tests compare against evidence rather than against my memory of it.
 UPSTREAM_EXAMPLE = {
-    "name": "aig-lionguard-hateful-policy",
-    "description": "Lionguard Hateful policy",
+    "name": "example-hateful-policy",
+    "description": "Example hateful-content policy",
     "version": "1.0.0",
     "guardrails": [
         {
-            "name": "govtech/system-prompt-leakage",
+            "name": "vendor-a/system-prompt-leakage",
             "thresholds": {"failed": 0.9, "warning": 0.5},
         },
         {
-            "name": "govtech/lionguard-2-hateful_l1",
+            "name": "vendor-a/hateful",
             "thresholds": {"failed": 0.9, "warning": 0.5},
         },
     ],
@@ -74,8 +73,8 @@ UPSTREAM_EXAMPLE = {
 
 def _definitions() -> dict[str, GuardrailDefinition]:
     return {
-        "govtech/lionguard-2-hateful_l1": GuardrailDefinition(
-            name="govtech/lionguard-2-hateful_l1",
+        "vendor-a/hateful": GuardrailDefinition(
+            name="vendor-a/hateful",
             score_direction=ScoreDirection.HIGHER_IS_RISKIER,
             minimum_score=0.0,
             maximum_score=1.0,
@@ -83,8 +82,8 @@ def _definitions() -> dict[str, GuardrailDefinition]:
             # Present on the DEFINITION, deliberately never sent to Sentinel.
             parameters={"model_version": "2.1"},
         ),
-        "aws/prompt_attack": GuardrailDefinition(
-            name="aws/prompt_attack",
+        "vendor-b/prompt_attack": GuardrailDefinition(
+            name="vendor-b/prompt_attack",
             score_direction=ScoreDirection.HIGHER_IS_RISKIER,
             minimum_score=0.0,
             maximum_score=1.0,
@@ -96,23 +95,23 @@ def _definitions() -> dict[str, GuardrailDefinition]:
 def _candidate() -> PolicyCandidate:
     return PolicyCandidate.of(
         {
-            "govtech/lionguard-2-hateful_l1": GuardrailThresholds(
+            "vendor-a/hateful": GuardrailThresholds(
                 failed=0.28765, warning=0.014
             ),
-            "aws/prompt_attack": GuardrailThresholds(failed=0.5, warning=None),
+            "vendor-b/prompt_attack": GuardrailThresholds(failed=0.5, warning=None),
         }
     )
 
 
-#: Scores the two guardrails were observed to produce. Needed because `aws/prompt_attack`
+#: Scores the two guardrails were observed to produce. Needed because `vendor-b/prompt_attack`
 #: below has NO warning band, and Sentinel refuses to store a binding without one (500 if
 #: omitted, 400 if equal to `failed` — both seen live on 2026-07-29). The mapping derives a
 #: band no observed score reaches, so it needs the scores to know where the gap is.
 def _observed_scores() -> dict[str, list[float]]:
     return {
-        "govtech/lionguard-2-hateful_l1": [0.001, 0.01, 0.05, 0.3, 0.95],
+        "vendor-a/hateful": [0.001, 0.01, 0.05, 0.3, 0.95],
         # Nothing between 0.2 and the 0.5 blocking line, so a silent band fits there.
-        "aws/prompt_attack": [0.0, 0.02, 0.2, 0.61, 1.0],
+        "vendor-b/prompt_attack": [0.0, 0.02, 0.2, 0.61, 1.0],
     }
 
 
@@ -255,8 +254,8 @@ def test_the_name_still_says_the_profile_and_that_it_is_a_draft():
 
 
 def test_a_caller_supplied_name_is_used_as_given():
-    assert _policy(name="aig-lionguard-hateful-policy").name == (
-        "aig-lionguard-hateful-policy"
+    assert _policy(name="example-hateful-policy").name == (
+        "example-hateful-policy"
     )
 
 
@@ -273,9 +272,9 @@ def test_thresholds_are_carried_through_exactly():
     the simulated confusion matrix describe the policy Sentinel actually stores.
     """
     bindings = {g.name: g for g in _policy().guardrails}
-    assert bindings["govtech/lionguard-2-hateful_l1"].thresholds.failed == 0.28765
-    assert bindings["govtech/lionguard-2-hateful_l1"].thresholds.warning == 0.014
-    assert bindings["aws/prompt_attack"].thresholds.failed == 0.5
+    assert bindings["vendor-a/hateful"].thresholds.failed == 0.28765
+    assert bindings["vendor-a/hateful"].thresholds.warning == 0.014
+    assert bindings["vendor-b/prompt_attack"].thresholds.failed == 0.5
 
 
 def test_a_bandless_guardrail_is_given_a_band_no_observed_score_reaches():
@@ -283,32 +282,36 @@ def test_a_bandless_guardrail_is_given_a_band_no_observed_score_reaches():
     `failed` (400), both confirmed live on 2026-07-29. So "blocks but never warns" has to
     be encoded as a band nothing lands in, rather than omitted.
 
-    `aws/prompt_attack` blocks at 0.5 and its observed scores are [0.0, 0.02, 0.2, 0.61,
+    `vendor-b/prompt_attack` blocks at 0.5 and its observed scores are [0.0, 0.02, 0.2, 0.61,
     1.0]. The riskiest score that still passes is 0.2, so the band opens strictly between
     0.2 and 0.5 — leaving every observed case with the verdict it had before.
     """
-    binding = {g.name: g for g in _policy().guardrails}["aws/prompt_attack"]
+    binding = {g.name: g for g in _policy().guardrails}["vendor-b/prompt_attack"]
     warning = binding.thresholds.warning
 
     assert warning is not None, "Sentinel rejects a binding without a warning threshold"
     assert 0.2 < warning < 0.5, "the band must clear the top passing score and the block line"
 
-    passing = [s for s in _observed_scores()["aws/prompt_attack"] if s < binding.thresholds.failed]
+    passing = [s for s in _observed_scores()["vendor-b/prompt_attack"] if s < binding.thresholds.failed]
     assert not [s for s in passing if s >= warning], "no observed score may fall in the band"
 
 
 def test_a_bandless_guardrail_with_no_scores_to_derive_from_raises():
     """Rather than emitting a body Sentinel will 500 on, or inventing a threshold."""
-    with pytest.raises(UnmappableWarningBandError, match="aws/prompt_attack"):
+    with pytest.raises(UnmappableWarningBandError, match="vendor-b/prompt_attack"):
         to_sentinel_policy(MINIMAL, _candidate(), _definitions())
 
 
 def test_namespaced_guardrail_names_are_passed_through_untouched():
-    """Upstream names carry a namespace (`govtech/`, `aws/`). Stripping or adding one
-    would silently target a different guardrail."""
+    """Upstream names carry a namespace (`vendor-a/`, `vendor-b/`). Stripping or adding one
+    would silently target a different guardrail.
+
+    The order is name-sorted, because `PolicyCandidate` sorts its entries — that is what
+    makes two candidates built in different orders compare and hash alike.
+    """
     assert [g.name for g in _policy().guardrails] == [
-        "aws/prompt_attack",
-        "govtech/lionguard-2-hateful_l1",
+        "vendor-a/hateful",
+        "vendor-b/prompt_attack",
     ]
 
 
@@ -368,79 +371,88 @@ def test_the_profile_is_prose_in_the_description_never_a_structured_field():
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# The shipped catalogue (assumption A7)
+# The catalogue type
+#
+# This package ships no catalogue: what a score means belongs to your guardrail
+# deployment, not to this library. So what is tested here is the TYPE's guarantees, which
+# every caller's catalogue then gets — rather than one shipped dataset's contents.
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def test_every_catalogue_name_records_where_it_came_from():
-    """**This replaced an assertion that every name must be namespaced.** That rule was
-    inferred from two examples in the policy body — and it contradicts direct evidence:
-    `lionguard-2-binary` was scored live against `/validate` without a namespace. Testing
-    an inference against the thing it was inferred from proves nothing, so it is gone.
-
-    What is testable, and what actually matters, is that no name is in the catalogue
-    without a recorded basis. A guessed guardrail name silently targets the wrong
-    guardrail, which is the same failure class as a guessed score direction.
-    """
-    for definition in catalogue.default_catalogue():
-        assert definition.name in catalogue.NAME_PROVENANCE, (
-            f"'{definition.name}' is offered as a default with no recorded provenance"
-        )
-        assert catalogue.NAME_PROVENANCE[definition.name].strip()
+def _definition(name: str) -> GuardrailDefinition:
+    return GuardrailDefinition(
+        name=name,
+        score_direction=ScoreDirection.HIGHER_IS_RISKIER,
+        minimum_score=0.0,
+        maximum_score=1.0,
+    )
 
 
-def test_policy_guardrail_names_are_namespaced():
-    """**Resolved by a live call**, replacing the earlier "record the open question" test.
+def test_the_package_ships_no_catalogue_of_its_own():
+    """A shipped list would be a claim about someone else's deployment that this package
+    cannot check — versions, calibration and score direction all vary by installation."""
+    assert catalogue.EMPTY_CATALOGUE.definitions() == ()
+    assert catalogue.EMPTY_CATALOGUE.exclusion_reason("anything") is None
 
-    `GET /api/v1/core/guardrails` returned 68 guardrails; every real detector is
-    namespaced (`govtech/…`, `aws/…`, `openai/…`, `meta-llama/…`). An earlier version of
-    the catalogue used the bare `lionguard-2-binary` and `prompt-attack`, which score
-    fine via `/validate` but are not what the catalogue endpoint lists — a policy built
-    from them would very likely be rejected or match nothing.
 
-    The bare entries upstream are provider/category heads, not detectors, and are
-    recorded separately so nobody "fixes" them by adding a prefix.
-    """
-    for definition in catalogue.default_catalogue():
-        assert "/" in definition.name, (
-            f"'{definition.name}' has no namespace; the live catalogue lists detectors "
-            f"as 'govtech/lionguard-2-binary', 'aws/prompt_attack' and so on"
+def test_an_entry_without_provenance_is_rejected():
+    """A guessed guardrail name silently targets the wrong guardrail — the same failure
+    class as a guessed score direction. An entry nobody can source is not offerable."""
+    with pytest.raises(ValueError, match="provenance"):
+        catalogue.GuardrailCatalogue(entries=(_definition("vendor/toxicity"),))
+
+
+def test_provenance_that_is_only_whitespace_does_not_count():
+    with pytest.raises(ValueError, match="provenance"):
+        catalogue.GuardrailCatalogue(
+            entries=(_definition("vendor/toxicity"),),
+            provenance={"vendor/toxicity": "   "},
         )
 
-    assert catalogue.BARE_UPSTREAM_ENTRIES
-    assert all("/" not in name for name in catalogue.BARE_UPSTREAM_ENTRIES)
-    assert not set(catalogue.BARE_UPSTREAM_ENTRIES) & {
-        g.name for g in catalogue.default_catalogue()
-    }
+
+def test_the_same_guardrail_cannot_be_listed_twice():
+    with pytest.raises(ValueError, match="more than once"):
+        catalogue.GuardrailCatalogue(
+            entries=(_definition("vendor/toxicity"), _definition("vendor/toxicity")),
+            provenance={"vendor/toxicity": "scored live against the vendor API"},
+        )
 
 
-def test_the_two_endpoints_name_guardrails_differently_and_that_is_recorded():
-    """`/validate` accepted the bare `lionguard-2-binary` and returned a score in the
-    same session the catalogue endpoint listed only `govtech/lionguard-2-binary`. That
-    difference is a trap for the next person, so the provenance note carries it."""
-    note = catalogue.NAME_PROVENANCE["govtech/lionguard-2-binary"]
-    assert "lionguard-2-binary" in note
-    assert "validate" in note
+def test_a_guardrail_cannot_be_both_offered_and_excluded():
+    """The failure this prevents: an exclusion added while the entry stayed in the list,
+    leaving a guardrail someone already found to be broken still being recommended."""
+    with pytest.raises(ValueError, match="both offers and excludes"):
+        catalogue.GuardrailCatalogue(
+            entries=(_definition("vendor/toxicity"),),
+            provenance={"vendor/toxicity": "scored live against the vendor API"},
+            exclusions={"vendor/toxicity": "miscalibrated on our traffic"},
+        )
 
 
-def test_every_excluded_guardrail_has_a_written_reason():
-    assert catalogue.EXCLUDED
-    for name, reason in catalogue.EXCLUDED.items():
-        assert reason.strip(), f"{name} is excluded with no reason given"
-        assert name not in {g.name for g in catalogue.default_catalogue()}
+def test_an_exclusion_must_carry_the_observation_that_caused_it():
+    """So the same guardrail is not re-tested and re-rejected every six months."""
+    with pytest.raises(ValueError, match="no reason given"):
+        catalogue.GuardrailCatalogue(exclusions={"vendor/pii": ""})
 
 
-def test_aws_pii_is_excluded_and_says_why():
-    """Excluded on real evidence, not on principle: on raw prompts it cannot tell
-    "find someone's NRIC" from "here is MY NRIC", scoring both 1.0."""
-    assert "aws/pii" in catalogue.EXCLUDED
-    assert "nric" in catalogue.EXCLUDED["aws/pii"].lower()
+def test_definitions_are_copies_so_one_caller_cannot_mutate_the_shared_catalogue():
+    shared = catalogue.GuardrailCatalogue(
+        entries=(_definition("vendor/toxicity"),),
+        provenance={"vendor/toxicity": "scored live against the vendor API"},
+    )
+    taken = shared.definitions()[0]
+    taken.maximum_score = 99.0
+
+    assert shared.definitions()[0].maximum_score == 1.0
 
 
-def test_every_catalogue_entry_declares_a_direction_and_a_range():
-    for definition in catalogue.default_catalogue():
-        assert definition.score_direction in ScoreDirection
-        assert definition.minimum_score < definition.maximum_score
+def test_an_exclusion_reason_is_retrievable_and_unknown_names_return_none():
+    built = catalogue.GuardrailCatalogue(
+        exclusions={"vendor/pii": "cannot tell a request for someone's ID from a user "
+                    "supplying their own; both score 1.0"}
+    )
+    assert "score 1.0" in (built.exclusion_reason("vendor/pii") or "")
+    assert built.exclusion_reason("vendor/unheard-of") is None
 
 
 def test_the_catalogue_is_advisory_not_a_whitelist():
@@ -463,15 +475,23 @@ def test_the_catalogue_is_advisory_not_a_whitelist():
 
 
 def test_the_mapping_module_never_rewrites_a_guardrail_name():
-    """Guarding a specific temptation: prefixing bare names with `govtech/` to "fix" them
-    would silently point a policy at a different guardrail."""
-    source = inspect.getsource(
-        __import__("guardopt.sentinel.mapping", fromlist=["mapping"])
+    """Guarding a specific temptation: "fixing" a bare name by prefixing it with a
+    namespace would silently point the policy at a different guardrail.
+
+    Checked behaviourally rather than by scanning the source for one namespace string.
+    That scan was tied to whichever namespace happened to be in use, so it stopped meaning
+    anything the moment those names changed. These names differ deliberately in shape —
+    bare, namespaced, underscored, punctuated — and every one must come back identical.
+    """
+    names = ("bare-detector", "vendor-a/hateful", "vendor_b/prompt_attack", "Odd.Name-1")
+    policy = to_sentinel_policy(
+        MINIMAL,
+        PolicyCandidate.of({name: GuardrailThresholds(failed=0.5) for name in names}),
+        definitions={name: _definition(name) for name in names},
+        observed_scores={name: [0.1, 0.9] for name in names},
     )
-    code = "\n".join(
-        line for line in source.splitlines() if not line.strip().startswith("#")
-    )
-    assert "govtech/" not in code
+
+    assert sorted(binding.name for binding in policy.guardrails) == sorted(names)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -482,20 +502,20 @@ def test_the_mapping_module_never_rewrites_a_guardrail_name():
 def test_the_guardrails_given_an_invented_band_are_reported():
     """So the recommendation can disclose it rather than quietly showing a threshold the
     optimiser never chose."""
-    assert guardrails_given_a_silent_band(_candidate()) == ("aws/prompt_attack",)
+    assert guardrails_given_a_silent_band(_candidate()) == ("vendor-b/prompt_attack",)
 
 
 def test_a_guardrail_with_a_real_band_is_not_reported():
-    """`govtech/lionguard-2-hateful_l1` has a ladder-derived band, so nothing was
+    """`vendor-a/hateful` has a ladder-derived band, so nothing was
     invented for it and it must not be flagged as though something was."""
-    assert "govtech/lionguard-2-hateful_l1" not in guardrails_given_a_silent_band(_candidate())
+    assert "vendor-a/hateful" not in guardrails_given_a_silent_band(_candidate())
 
 
 def test_a_fully_banded_policy_reports_nothing():
     fully_banded = PolicyCandidate.of(
         {
-            "govtech/lionguard-2-hateful_l1": GuardrailThresholds(failed=0.9, warning=0.5),
-            "aws/prompt_attack": GuardrailThresholds(failed=0.5, warning=0.25),
+            "vendor-a/hateful": GuardrailThresholds(failed=0.9, warning=0.5),
+            "vendor-b/prompt_attack": GuardrailThresholds(failed=0.5, warning=0.25),
         }
     )
     assert guardrails_given_a_silent_band(fully_banded) == ()

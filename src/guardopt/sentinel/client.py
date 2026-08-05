@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from guardopt.domain.inputs import GuardrailDefinition
-from guardopt.sentinel.catalogue import default_catalogue
 from guardopt.sentinel.schema import SentinelPolicy
 
 
@@ -68,7 +67,10 @@ class FakeSentinelPolicyClient:
     no write was even attempted — there being no method with which to attempt one.
     """
 
-    guardrails: tuple[GuardrailDefinition, ...] = field(default_factory=default_catalogue)
+    #: Empty by default. This package ships no catalogue — score semantics belong to your
+    #: deployment, not to the library — so a test or caller states what it is pretending
+    #: Sentinel offers.
+    guardrails: tuple[GuardrailDefinition, ...] = ()
     policies: dict[str, SentinelPolicy] = field(default_factory=dict)
 
     list_calls: int = 0

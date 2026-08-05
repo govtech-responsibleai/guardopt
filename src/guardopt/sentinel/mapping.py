@@ -54,7 +54,7 @@ def slugify(text: str) -> str:
     `:policyNameOrId` in the path and `/check` takes the name in its body. A name
     containing spaces or parentheses — which the first cut of `policy_name_for` produced —
     would need escaping to be addressable, and would not round-trip cleanly. The observed
-    upstream example (`aig-lionguard-hateful-policy`) is exactly this shape.
+    upstream example (`example-hateful-policy`) is exactly this shape.
     """
     return _SLUG_STRIP.sub("-", text.lower()).strip("-")
 

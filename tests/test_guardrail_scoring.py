@@ -31,21 +31,21 @@ from guardopt.sentinel.scoring import (
 
 pytestmark = pytest.mark.unit
 
-GUARDRAILS = ("govtech/lionguard-2-binary", "aws/prompt_attack")
+GUARDRAILS = ("vendor-a/toxicity", "vendor-b/prompt_attack")
 
 #: A real response shape, taken from the 51-prompt live run.
 LIVE_PAYLOAD = {
     "results": {
-        "govtech/lionguard-2-binary": {"score": 0.5233},
-        "aws/prompt_attack": {"score": 1.0},
+        "vendor-a/toxicity": {"score": 0.5233},
+        "vendor-b/prompt_attack": {"score": 1.0},
     }
 }
 
 #: Also real: HTTP 200, one guardrail scored, one reported under `errors` with no
 #: `results` row at all.
 PARTIAL_FAILURE_PAYLOAD = {
-    "results": {"aws/prompt_attack": {"score": 0.0}},
-    "errors": {"govtech/lionguard-2-binary": "model unavailable"},
+    "results": {"vendor-b/prompt_attack": {"score": 0.0}},
+    "errors": {"vendor-a/toxicity": "model unavailable"},
 }
 
 FAKE_KEY = "test-key-not-a-real-credential"
@@ -56,15 +56,15 @@ class TestMappingAResponse:
         results = results_from_validate_payload(LIVE_PAYLOAD, GUARDRAILS)
         by_name = {r.guardrail_name: r for r in results}
 
-        assert by_name["govtech/lionguard-2-binary"].score == 0.5233
-        assert by_name["aws/prompt_attack"].score == 1.0
+        assert by_name["vendor-a/toxicity"].score == 0.5233
+        assert by_name["vendor-b/prompt_attack"].score == 1.0
         assert all(r.error is None for r in results)
 
     def test_an_errored_guardrail_becomes_an_error_not_a_pass(self):
         results = results_from_validate_payload(PARTIAL_FAILURE_PAYLOAD, GUARDRAILS)
         by_name = {r.guardrail_name: r for r in results}
 
-        errored = by_name["govtech/lionguard-2-binary"]
+        errored = by_name["vendor-a/toxicity"]
         assert errored.score is None
         assert errored.error == "model unavailable"
 
@@ -74,7 +74,7 @@ class TestMappingAResponse:
             r.guardrail_name: r
             for r in results_from_validate_payload(PARTIAL_FAILURE_PAYLOAD, GUARDRAILS)
         }
-        assert by_name["aws/prompt_attack"].score == 0.0
+        assert by_name["vendor-b/prompt_attack"].score == 0.0
 
     def test_a_guardrail_absent_from_both_results_and_errors_is_an_error(self):
         """Silence is not a pass. Sentinel simply not mentioning a guardrail we asked for

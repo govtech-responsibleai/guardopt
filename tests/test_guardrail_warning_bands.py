@@ -4,7 +4,7 @@
 
     omitted warning        -> HTTP 500 Internal server error
     warning == failed      -> HTTP 400 "'warning' threshold must be less than 'failed'
-                                        threshold for guardrail 'aws/prompt_attack'"
+                                        threshold for guardrail 'vendor-b/prompt_attack'"
 
 So every guardrail in a Sentinel policy must carry a warning threshold, strictly inside
 the passing region. "Blocks but never warns" — a perfectly ordinary outcome of the

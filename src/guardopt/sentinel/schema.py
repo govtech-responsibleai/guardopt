@@ -5,11 +5,11 @@ captured against a live Sentinel deployment, rather than a schema written from
 documentation. The verified create body is:
 
     {
-      "name": "aig-lionguard-hateful-policy",
-      "description": "Lionguard Hateful policy",
+      "name": "example-hateful-policy",
+      "description": "Example hateful-content policy",
       "version": "1.0.0",
       "guardrails": [
-        {"name": "govtech/system-prompt-leakage",
+        {"name": "vendor-a/system-prompt-leakage",
          "thresholds": {"failed": 0.9, "warning": 0.5}}
       ],
       "criteria": {"overall": "fail_if_any_fails", "error": "warn_on_error"}
@@ -97,7 +97,7 @@ class SentinelGuardrailBinding(BaseModel):
     """One guardrail as configured within a policy — exactly the two fields the real
     create body carries.
 
-    `name` is namespaced upstream (`govtech/lionguard-2-hateful_l1`, `aws/prompt_attack`)
+    `name` is namespaced upstream (`vendor-a/hateful`, `vendor-b/prompt_attack`)
     and is passed through exactly as supplied. The optimiser never rewrites or prefixes a
     guardrail name: guessing at a namespace would silently target a different guardrail.
     """
