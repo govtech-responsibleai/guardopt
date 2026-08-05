@@ -28,7 +28,7 @@ class OptimizerTest(unittest.TestCase):
             ),
             DatasetRecord(
                 id="risk_2",
-                text="my NRIC is S1234567A",
+                text="my national ID is AB1234567C",
                 unsafe=True,
                 labels=("pii",),
             ),
@@ -36,7 +36,7 @@ class OptimizerTest(unittest.TestCase):
         guards = [
             HeuristicGuardrail(
                 name="pii",
-                label_patterns={"pii": [(r"\b[STFG]\d{7}[A-Z]\b", 0.98)]},
+                label_patterns={"pii": [(r"\b[A-Z]{2}\d{7}[A-Z]\b", 0.98)]},
                 base_latency_ms=4,
             ),
             HeuristicGuardrail(
@@ -67,7 +67,7 @@ class OptimizerTest(unittest.TestCase):
             ),
             DatasetRecord(
                 id="risk_pii",
-                text="my NRIC is S1234567A",
+                text="my national ID is AB1234567C",
                 unsafe=True,
                 labels=("pii",),
             ),
@@ -80,7 +80,7 @@ class OptimizerTest(unittest.TestCase):
             ),
             HeuristicGuardrail(
                 name="pii",
-                label_patterns={"pii": [(r"\b[STFG]\d{7}[A-Z]\b", 0.98)]},
+                label_patterns={"pii": [(r"\b[A-Z]{2}\d{7}[A-Z]\b", 0.98)]},
                 base_latency_ms=12,
             ),
         ]
@@ -111,7 +111,7 @@ class OptimizerTest(unittest.TestCase):
             ),
             DatasetRecord(
                 id="risk_pii",
-                text="my NRIC is S1234567A",
+                text="my national ID is AB1234567C",
                 unsafe=True,
                 labels=("pii",),
             ),
@@ -124,7 +124,7 @@ class OptimizerTest(unittest.TestCase):
             ),
             HeuristicGuardrail(
                 name="pii",
-                label_patterns={"pii": [(r"\b[STFG]\d{7}[A-Z]\b", 0.98)]},
+                label_patterns={"pii": [(r"\b[A-Z]{2}\d{7}[A-Z]\b", 0.98)]},
                 base_latency_ms=20,
             ),
         ]

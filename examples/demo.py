@@ -23,8 +23,8 @@ def build_demo_guards() -> list[HeuristicGuardrail]:
             name="pii_regex",
             label_patterns={
                 "pii": [
-                    (r"\b[STFG]\d{7}[A-Z]\b", 0.98),
-                    (r"\b[689]\d{7}\b", 0.85),
+                    (r"\b[A-Z]{2}\d{7}[A-Z]\b", 0.98),
+                    (r"\b555 ?\d{4}\b", 0.85),
                 ]
             },
             base_latency_ms=4,
