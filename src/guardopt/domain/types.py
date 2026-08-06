@@ -71,6 +71,18 @@ class SearchMethod(str, Enum):
     BOUNDED_BEAM = "bounded_beam"
 
 
+class StageCondition(str, Enum):
+    """Whether a stage runs at all.
+
+    `ON_UNCERTAIN` is what makes a cascade worth having: an expensive adjudicator that runs
+    only when the cheap checks could not settle the request. A stage that always runs is
+    just a stage.
+    """
+
+    ALWAYS = "always"
+    ON_UNCERTAIN = "on_uncertain"
+
+
 class MissingResultPolicy(str, Enum):
     """What an ENABLED guardrail with no result for a case means.
 
