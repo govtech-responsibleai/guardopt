@@ -25,6 +25,7 @@ from guardopt.domain.candidates import (
     generate_threshold_values,
     pairs_that_can_block,
 )
+from guardopt.domain.fanout import latency_by_call_group
 from guardopt.domain.inputs import GuardrailDefinition, OptimiserRequest
 from guardopt.domain.metrics import (
     BinaryOutcomeReport,
@@ -304,15 +305,20 @@ class PolicyEvaluator:
         return evaluated
 
     def _latency_for(self, candidate: PolicyCandidate) -> float | None:
-        """Guardrails execute in parallel, so a policy costs its SLOWEST member — not
-        the sum. Summing would make every multi-guardrail policy look unaffordable and
-        push all three profiles towards single-guardrail answers."""
-        timings = [
-            self._mean_latency[name]
-            for name in candidate.enabled_names
-            if self._mean_latency.get(name) is not None
-        ]
-        return max(timings) if timings else None
+        """Guardrails execute in parallel, so a policy costs its SLOWEST call — not the
+        sum. Summing would make every multi-guardrail policy look unaffordable and push all
+        three profiles towards single-guardrail answers.
+
+        Timings are collapsed **per call** before the max, not per guardrail. Four signals
+        fanned out from one multi-label request are one call; charging them separately
+        would report four. Under `max` that collapse changes nothing today — the four carry
+        the same number — but the charge is computed in one place so that summing over
+        sequential stages later cannot quietly multiply it.
+        """
+        charges = latency_by_call_group(
+            candidate.enabled_names, self._definitions, self._mean_latency
+        )
+        return max(charges.values()) if charges else None
 
 
 def _mean_latency_by_guardrail(request: OptimiserRequest) -> dict[str, float | None]:

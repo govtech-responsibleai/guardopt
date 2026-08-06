@@ -41,7 +41,25 @@ class GuardrailDefinition(BaseModel):
     is_mandatory: bool = False
     parameters: dict[str, Any] = Field(default_factory=dict)
 
+    #: Guardrails that are answered by the SAME call share a call group, and are charged
+    #: for once rather than once each.
+    #:
+    #: This exists for multi-label detectors. One request to a moderation endpoint returns
+    #: hate, violence, self-harm and sexual scores; the optimiser thresholds one score at a
+    #: time, so those become four guardrails — but they still cost one round trip. Charging
+    #: per guardrail would report four, inflating the package's own latency figures and
+    #: arguing against a guardrail that is cheaper than it claims.
+    #:
+    #: `None` means "not shared", which is the common case: the guardrail is its own group.
+    #: Read `call_group_key`, never this field directly.
+    call_group: str | None = None
+
     model_config = ConfigDict(from_attributes=True)
+
+    @property
+    def call_group_key(self) -> str:
+        """What this guardrail is charged under. Its own name unless it shares a call."""
+        return self.call_group or self.name
 
     def contains_score(self, score: float) -> bool:
         return self.minimum_score <= score <= self.maximum_score
