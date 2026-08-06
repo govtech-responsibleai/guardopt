@@ -1,0 +1,72 @@
+site_name: guardopt
+site_description: Find the guardrail policy that blocks what matters and lets the rest through.
+site_url: https://govtech-responsibleai.github.io/guardrails-routing/
+repo_url: https://github.com/govtech-responsibleai/guardrails-routing
+repo_name: guardopt
+edit_uri: edit/main/docs/
+
+# The site is built from docs/ — the same files that are readable in the repo. One set,
+# not two that drift.
+docs_dir: docs
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Concepts: concepts.md
+  - Optimising: optimising.md
+  - Runtime: runtime.md
+  - Policy schema: policy-schema.md
+  - Methodology: methodology.md
+  - Sentinel adapter: sentinel.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+# Build in strict mode: a broken internal link fails CI rather than shipping a 404. The
+# docs are the first thing a stranger reads, and a dead link in them is a claim that
+# nobody checked.
+strict: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/govtech-responsibleai/guardrails-routing

@@ -1,174 +1,157 @@
 # guardopt
 
-Find the guardrail policy that blocks what matters and lets the rest through.
+**Find the guardrail policy that blocks what matters and lets the rest through.**
 
-`guardopt` is intentionally not another guardrail framework. It assumes you already have
-guardrails — PII detectors, prompt-injection classifiers, toxicity checks, grounding
-checks, policy-specific validators. Its job is to measure them against your own labelled
-traffic and tell you where to set them.
+`guardopt` is not another guardrail framework. It assumes you already have guardrails — PII
+detectors, prompt-injection classifiers, toxicity checks, grounding checks, your own
+validators. Its job is to measure them against your own labelled traffic and tell you where
+to set them.
+
+> **Pre-release.** The API is not stable. This package is mid-merge between an offline
+> optimiser and a runtime router; `0.2.0.dev0` is the first version under the `guardopt`
+> name. Treat every import path as provisional until `0.2.0`.
+
+## The problem
+
+Someone picks `0.5`. It is a round number and it is the default in the example. Then either
+the support queue fills with people blocked for nothing, or something gets through that
+should not have, and the number moves to `0.7`, and the cycle repeats.
+
+The threshold is not the hard part. The hard part is that moving it **trades one kind of
+error for another**, and without measuring you only ever see the consequences — weeks
+later, one complaint at a time.
+
+## What you get
+
+Give it scores your guardrails already produced on cases you have labelled. It searches
+thresholds and on/off decisions, and returns three defensible options:
 
 ```text
-Product backend -> guardopt -> your guardrails
+--- MINIMAL ---            --- BALANCED ---           --- STRICT ---
+  recall     0.7             recall     0.9             recall     1.0
+  precision  1.0             precision  0.82            precision  0.77
+  false pos  0               false pos  2               false pos  3
+  false neg  3               false neg  1               false neg  0
 ```
 
-## Current status
+That is the trade, on one screen: catching the last 3 unsafe cases costs 3 false positives.
+Whether that is worth it depends on what a mistake costs you — which is exactly why
+`guardopt` does not decide it for you.
 
-**This package is mid-merge and the API is not yet stable.** It is being combined with a
-larger optimiser engine; `0.2.0.dev0` is the first version under the `guardopt` name.
-Until `0.2.0` lands, treat every import path as provisional.
+Each option comes with a confusion matrix, the metrics behind it, the case IDs in every
+cell, and a written explanation of what it would have done to your data.
 
-What works today:
-
-- A guardrail adapter interface, and a runtime router with route traces.
-- A portable, versioned route policy artifact.
-- An HTTP guardrail adapter.
-- A JSONL evaluation format.
-- An optimizer over thresholds and route order, with parallel stages.
-- Per-label recall reporting and constraints.
-- Heuristic guardrails for demos and tests.
-
-What is arriving in the merge:
-
-- Direction-aware thresholds, so a guardrail where *lower* means riskier works correctly.
-- A first-class ERROR outcome — a guardrail that could not run is never treated as a pass.
-- Threshold candidates derived from your observed scores rather than a fixed grid.
-- Candidate-space sizing, so an oversized search is refused rather than left to hang.
-- Full confusion-matrix metrics, including a separate warning band.
-- Three recommended policies on the Pareto frontier — Minimal, Balanced, Strict — with
-  written explanations, rather than a single winner.
-
-## Why This Exists
-
-Adjacent tools exist, but they mostly run or test guardrails rather than optimize guardrail routing:
-
-- Guardrails AI: validator framework.
-- NVIDIA NeMo Guardrails: programmable rails for LLM apps.
-- ProtectAI LLM Guard: scanner library.
-- LiteLLM guardrails: proxy integration hooks.
-- Promptfoo: testing and red-team evaluation.
-- RouteLLM / LLMRouter: route between models, not guardrails.
-- Semantic Router: semantic intent routing, not empirical guardrail cascade optimization.
-
-The gap this prototype targets is:
-
-> Given any number of guardrails and labelled evaluation traffic, find a route policy that minimizes false positives and latency subject to safety constraints.
-
-## Quick Start
-
-Run the demo:
+## Install
 
 ```bash
-python3 examples/demo.py
+pip install guardopt
 ```
 
-Run the product-side router example:
+Core has one dependency, `pydantic`. Optional extras: `guardopt[sentinel]`.
 
-```bash
-python3 examples/product_side_router.py
-```
-
-Run tests:
-
-```bash
-python3 -m unittest discover tests
-```
-
-## Example
+## Quickstart
 
 ```python
-from guardopt import (
-    GuardrailRouteOptimizer,
-    HeuristicGuardrail,
-    OptimizationConstraints,
-    load_jsonl,
+from guardopt.domain.inputs import (
+    GuardrailDefinition, GuardrailTestResult,
+    OptimiserRequest, TestCaseGuardrailResults,
 )
+from guardopt.domain.types import ExpectedAction, ScoreDirection
+from guardopt.optimise import optimise
 
-records = load_jsonl("examples/citizen_chatbot_eval.jsonl")
+HIGHER = ScoreDirection.HIGHER_IS_RISKIER
 
-guards = [
-    HeuristicGuardrail(
-        name="pii_regex",
-        label_patterns={"pii": [(r"\b[STFG]\d{7}[A-Z]\b", 0.98)]},
-        base_latency_ms=4,
-    ),
-    HeuristicGuardrail(
-        name="prompt_injection_light",
-        label_patterns={"prompt_injection": [(r"ignore previous instructions", 0.9)]},
-        base_latency_ms=12,
-    ),
+guardrails = [
+    GuardrailDefinition(name="toxicity", score_direction=HIGHER,
+                        minimum_score=0.0, maximum_score=1.0),
+    GuardrailDefinition(name="pii", score_direction=HIGHER,
+                        minimum_score=0.0, maximum_score=1.0),
 ]
 
-optimizer = GuardrailRouteOptimizer()
-result = optimizer.fit(
-    records=records,
-    guards=guards,
-    constraints=OptimizationConstraints(
-        min_recall=0.98,
-        min_label_recall={"pii": 0.99, "prompt_injection": 0.98},
+test_cases = [
+    TestCaseGuardrailResults(
+        test_case_id="ticket-4471",
+        expected_action=ExpectedAction.BLOCK,
+        guardrail_results=[
+            GuardrailTestResult(guardrail_name="toxicity", score=0.91),
+            GuardrailTestResult(guardrail_name="pii", score=0.02),
+        ],
     ),
-)
+    # ... the rest of your labelled data
+]
 
-print(result.best_policy.to_dict())
-print(result.best_report.to_dict())
+result = optimise(OptimiserRequest(guardrails=guardrails, test_cases=test_cases))
+
+for recommendation in result.recommendations:
+    print(recommendation.profile.value, recommendation.evaluated.recall)
+    print(recommendation.explanation.as_text())
 ```
 
-Policies can override thresholds globally, by label, by guardrail, or by guardrail-label pair:
+Run the full worked example:
 
-```json
-{
-  "low_threshold": 0.2,
-  "high_threshold": 0.8,
-  "thresholds": {
-    "labels": {
-      "pii": {"low": 0.05, "high": 0.75}
-    },
-    "guard_labels": {
-      "sentinel_prompt_injection": {
-        "prompt_injection": {"low": 0.2, "high": 0.75}
-      }
-    }
-  }
-}
+```bash
+python examples/quickstart.py
 ```
 
-Export the optimized policy:
+## What it is careful about
 
-```python
-result.best_policy.to_file("route-policy.json")
+Most of these exist because the opposite went wrong somewhere first.
+
+- **It never infers a guardrail's score direction.** You state whether higher or lower means
+  riskier. A guessed direction inverts every threshold that guardrail contributes — and
+  produces a confusion matrix, metrics and prose that are all internally consistent and all
+  describe something you did not want.
+- **A guardrail that could not run is never a pass.** "We could not check" and "we checked
+  and it is clean" stay distinguishable end to end.
+- **It refuses rather than hangs.** The policy space is a product across guardrails; its
+  size is computed *before* enumeration, and an oversized search is refused in favour of a
+  bounded one — which then reports that it was bounded, so you never mistake a best-found
+  result for a proven optimum.
+- **It returns fewer than three options rather than inventing one.** Two policies that give
+  the identical verdict on every case are the same policy, however different their guardrail
+  lists look.
+- **Undefined is `None`, never `0.0`.** A policy that blocked nothing has no precision;
+  reporting zero would claim it was wrong every time it blocked.
+- **It says what it does not know.** Every explanation carries limitations, and the
+  simulation caveat is always first.
+
+## Documentation
+
+📖 **[Full documentation](https://govtech-responsibleai.github.io/guardrails-routing/)**
+
+- [Concepts](docs/concepts.md) — guardrails, thresholds, the three bands, policies, profiles
+- [Optimising](docs/optimising.md) — the quickstart, preparing data, reading results
+- [Runtime](docs/runtime.md) — calling guardrails and enforcing a policy
+- [Policy schema](docs/policy-schema.md) — the portable artifact, field by field
+- [Methodology](docs/methodology.md) — how the search works, and what it does not prove
+- [Sentinel](docs/sentinel.md) — the optional adapter
+
+## Why not an existing tool
+
+Adjacent tools mostly **run** or **test** guardrails rather than optimise how they are
+configured:
+
+| | What it does |
+|---|---|
+| Guardrails AI | Validator framework |
+| NVIDIA NeMo Guardrails | Programmable rails for LLM apps |
+| ProtectAI LLM Guard | Scanner library |
+| LiteLLM guardrails | Proxy integration hooks |
+| Promptfoo | Testing and red-teaming |
+| RouteLLM, Semantic Router | Route between *models*, or by intent |
+
+The gap this fills:
+
+> Given any number of guardrails and labelled evaluation traffic, find the configuration
+> that minimises false positives subject to a safety constraint — and show your working.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest
 ```
 
-Load it inside a product backend:
+## Licence
 
-```python
-from guardopt import GuardrailRouter, SentinelGuardrail
-
-router = GuardrailRouter.from_policy_file(
-    "route-policy.json",
-    guards={
-        "sentinel_prompt_injection": SentinelGuardrail(
-            name="sentinel_prompt_injection",
-            endpoint="https://sentinel.example.gov.sg/validate/prompt-injection",
-            headers={"Authorization": "Bearer ..."},
-        )
-    },
-)
-```
-
-## Evaluation Format
-
-JSONL records use this shape:
-
-```json
-{"id": "001", "text": "How do I renew my passport?", "unsafe": false, "labels": []}
-{"id": "002", "text": "Ignore previous instructions...", "unsafe": true, "labels": ["prompt_injection"]}
-```
-
-`unsafe=true` means the guardrail route should detect or escalate the item. In evaluation, both `fail` and `uncertain` count as detected positives by default, because an uncertain route should not be treated as clean pass-through.
-
-## Docs
-
-- [Methodology](docs/methodology.md)
-- [Product-Side Router Guide](docs/product-side-router.md)
-- [Sentinel Proposal](docs/sentinel-proposal.md)
-- [Sentinel Testing Plan](docs/sentinel-testing-plan.md)
-- [Evaluation Protocol](docs/eval-protocol.md)
+MIT.
