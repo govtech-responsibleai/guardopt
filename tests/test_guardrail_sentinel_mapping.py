@@ -24,6 +24,7 @@ What the real API established, and what each rule here defends:
 """
 
 import ast
+import dataclasses
 import pathlib
 
 import pytest
@@ -393,6 +394,42 @@ def test_the_package_ships_no_catalogue_of_its_own():
     cannot check — versions, calibration and score direction all vary by installation."""
     assert catalogue.EMPTY_CATALOGUE.definitions() == ()
     assert catalogue.EMPTY_CATALOGUE.exclusion_reason("anything") is None
+
+
+def test_no_field_default_is_unhashable():
+    """Reproduces Python 3.11's dataclass rule on whatever version you are running.
+
+    3.11 rejects an unhashable field default as mutable; 3.12 relaxed the check to only
+    reject list/dict/set. A module-level `MappingProxyType({})` default therefore imports
+    fine on a 3.13 development machine and fails at IMPORT time on 3.11 — which is exactly
+    what happened here, and only CI caught it. This makes it catchable locally.
+    """
+    for field_ in dataclasses.fields(catalogue.GuardrailCatalogue):
+        if field_.default is not dataclasses.MISSING:
+            assert field_.default.__class__.__hash__ is not None, (
+                f"{field_.name} has an unhashable default "
+                f"({type(field_.default).__name__}), which Python 3.11 refuses. "
+                f"Use default_factory."
+            )
+
+
+def test_the_mappings_are_copied_so_a_caller_cannot_edit_the_catalogue_afterwards():
+    """`frozen=True` only stops the fields being rebound. Without a copy, a caller holding
+    a reference to the dict they passed could still edit it, and every consumer of the
+    catalogue would silently see the change."""
+    provenance = {"vendor-a/toxicity": "scored live against the vendor API"}
+    built = catalogue.GuardrailCatalogue(
+        entries=(_definition("vendor-a/toxicity"),), provenance=provenance
+    )
+
+    provenance["vendor-a/toxicity"] = "made it up"
+    provenance["vendor-z/new"] = "snuck in later"
+
+    assert built.provenance["vendor-a/toxicity"] == "scored live against the vendor API"
+    assert "vendor-z/new" not in built.provenance
+
+    with pytest.raises(TypeError):
+        built.provenance["vendor-z/new"] = "direct edit"
 
 
 def test_an_entry_without_provenance_is_rejected():

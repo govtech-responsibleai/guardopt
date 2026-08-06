@@ -39,9 +39,6 @@ __all__ = [
     "GuardrailCatalogue",
 ]
 
-_NO_ENTRIES: Mapping[str, str] = MappingProxyType({})
-
-
 @dataclass(frozen=True, slots=True)
 class GuardrailCatalogue:
     """Guardrails you have verified, with where each claim came from.
@@ -50,17 +47,31 @@ class GuardrailCatalogue:
     answers "why not this one?" for the ones you considered and rejected. Both are
     required to be non-empty strings where present, because an empty reason is worse than
     no reason: it looks like the question was answered.
+
+    Both mappings are **copied and made read-only** at construction. `frozen=True` only
+    stops the fields being rebound; without the copy, a caller who kept a reference to the
+    dict they passed could still edit the catalogue afterwards, and every consumer would
+    silently see the change.
     """
 
     entries: tuple[GuardrailDefinition, ...] = ()
 
     #: Guardrail name -> how its semantics were established. Every entry needs one.
-    provenance: Mapping[str, str] = field(default=_NO_ENTRIES)
+    #:
+    #: `default_factory`, not a shared `MappingProxyType` default: Python 3.11's dataclasses
+    #: reject an unhashable default as mutable, so a module-level proxy fails to import
+    #: there while working fine on 3.12+. The package supports 3.11.
+    provenance: Mapping[str, str] = field(default_factory=dict)
 
     #: Guardrail name -> the observation that excluded it.
-    exclusions: Mapping[str, str] = field(default=_NO_ENTRIES)
+    exclusions: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # Copy, then freeze. The copy defends against the caller's dict changing later;
+        # the proxy defends against anyone reaching into ours.
+        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
+        object.__setattr__(self, "exclusions", MappingProxyType(dict(self.exclusions)))
+
         names = [definition.name for definition in self.entries]
 
         duplicates = {name for name in names if names.count(name) > 1}
