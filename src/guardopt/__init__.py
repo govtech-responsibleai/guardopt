@@ -1,47 +1,66 @@
-"""Find the guardrail policy that blocks what matters and lets the rest through."""
+"""Find the guardrail policy that blocks what matters and lets the rest through.
 
-from guardopt.adapters import HttpJsonGuardrail, SentinelGuardrail
-from guardopt.evaluation import EvalReport, evaluate_policy, load_jsonl
-from guardopt.guards import Guardrail, HeuristicGuardrail
-from guardopt.optimizer import (
-    GuardrailRouteOptimizer,
-    OptimizationConstraints,
-    OptimizationResult,
+Two halves, and the boundary between them is deliberate:
+
+    guardopt.optimise    scores in, recommended policies out. Pure: no network, no
+                         credentials, no vendor. This is the part most callers need.
+
+    guardopt.runtime     calling guardrails and enforcing a policy on live traffic.
+                         Imports HTTP; nothing in the pure core imports it.
+
+`guardopt.sentinel` is an optional adapter for one particular guardrail service. Nothing
+else depends on it.
+
+The top level re-exports the pure path only. The runtime is imported explicitly — a caller
+who just wants to analyse a spreadsheet of scores should not pull in an HTTP stack to do it.
+"""
+
+from guardopt.domain.inputs import (
+    GuardrailDefinition,
+    GuardrailTestResult,
+    OptimiserConfig,
+    OptimiserRequest,
+    TestCaseGuardrailResults,
 )
-from guardopt.router import GuardrailRouter
-from guardopt.types import (
-    DatasetRecord,
-    GuardrailDecision,
-    GuardrailResult,
-    ROUTE_POLICY_SCHEMA_VERSION,
-    RoutePolicy,
-    RouteStage,
-    RouteTrace,
-    RoutedDecision,
-    ScoreThreshold,
-    ThresholdConfig,
+from guardopt.domain.matrix import ScoreMatrix
+from guardopt.domain.policy import (
+    POLICY_SCHEMA_VERSION,
+    GuardrailBinding,
+    Policy,
+    Stage,
 )
+from guardopt.domain.types import (
+    ExpectedAction,
+    GuardrailOutcome,
+    MissingResultPolicy,
+    PolicyOutcome,
+    RecommendationProfile,
+    ScoreDirection,
+    SearchMethod,
+    StageCondition,
+)
+from guardopt.optimise import OptimisationResult, ProfileRecommendation, optimise
 
 __all__ = [
-    "DatasetRecord",
-    "EvalReport",
-    "Guardrail",
-    "GuardrailDecision",
-    "GuardrailResult",
-    "GuardrailRouteOptimizer",
-    "GuardrailRouter",
-    "HeuristicGuardrail",
-    "HttpJsonGuardrail",
-    "OptimizationConstraints",
-    "OptimizationResult",
-    "ROUTE_POLICY_SCHEMA_VERSION",
-    "RoutePolicy",
-    "RouteStage",
-    "RouteTrace",
-    "RoutedDecision",
-    "ScoreThreshold",
-    "SentinelGuardrail",
-    "ThresholdConfig",
-    "evaluate_policy",
-    "load_jsonl",
+    "POLICY_SCHEMA_VERSION",
+    "ExpectedAction",
+    "GuardrailBinding",
+    "GuardrailDefinition",
+    "GuardrailOutcome",
+    "GuardrailTestResult",
+    "MissingResultPolicy",
+    "OptimisationResult",
+    "OptimiserConfig",
+    "OptimiserRequest",
+    "Policy",
+    "PolicyOutcome",
+    "ProfileRecommendation",
+    "RecommendationProfile",
+    "ScoreDirection",
+    "ScoreMatrix",
+    "SearchMethod",
+    "Stage",
+    "StageCondition",
+    "TestCaseGuardrailResults",
+    "optimise",
 ]
