@@ -15,7 +15,7 @@ parallel evaluation in `simulation.py`. That equivalence is pinned by a test, be
 the two ever disagree the optimiser is measuring something the runtime does not do.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from guardopt.domain.inputs import GuardrailDefinition, TestCaseGuardrailResults
 from guardopt.domain.policy import Policy, Stage
@@ -27,11 +27,15 @@ from guardopt.domain.types import (
     StageCondition,
 )
 
-__all__ = ["evaluate_staged_policy_on_case"]
+__all__ = ["evaluate_staged_policy_on_case", "stage_verdict"]
 
 
-def _stage_verdict(outcomes: list[GuardrailOutcome]) -> PolicyOutcome:
+def stage_verdict(outcomes: Sequence[GuardrailOutcome]) -> PolicyOutcome:
     """One stage's verdict, on the same precedence as the flat aggregation.
+
+    **Public because the runtime shares it.** The live router walks stages differently —
+    it must decide what to call before it has the scores — but the aggregation that turns
+    guardrail outcomes into a stage verdict has to be the same function, or the two drift.
 
     FAIL beats WARNING beats ERROR beats PASS. ERROR resolving to WARNING is what stops an
     unrunnable check from reading as a clean one.
@@ -99,7 +103,7 @@ def evaluate_staged_policy_on_case(
         outcomes.extend(stage_outcomes)
         missing.extend(stage_missing)
 
-        verdict = _stage_verdict([outcome for _, outcome in stage_outcomes])
+        verdict = stage_verdict([outcome for _, outcome in stage_outcomes])
 
         if verdict is PolicyOutcome.FAIL:
             # Already blocked; paying for the rest of the cascade buys nothing.
