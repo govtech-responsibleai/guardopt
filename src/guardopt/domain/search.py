@@ -41,11 +41,19 @@ from guardopt.domain.metrics_intervention import (
     InterventionReport,
     build_intervention_report,
 )
+from guardopt.domain.policy import GuardrailBinding, Policy, Stage
+from guardopt.domain.route import evaluate_staged_policy_on_case
+from guardopt.domain.route_cost import route_latency_ms
 from guardopt.domain.selection import PROFILE_ORDER, PROFILE_SORT_KEYS
 from guardopt.domain.simulation import (
     GuardrailThresholds,
     PolicyCandidate,
     evaluate_policy,
+)
+from guardopt.domain.stage_plans import (
+    check_combined_space,
+    count_stage_plans,
+    enumerate_stage_plans,
 )
 from guardopt.domain.types import SearchMethod
 
@@ -186,6 +194,14 @@ class EvaluatedPolicy:
     #: their guardrail lists say. Recommending both as "different options" would be a
     #: fabricated choice — see `selection.deduplicate_by_behaviour`.
     outcome_signature: tuple[str, ...] = ()
+
+    #: The staged policy this came from, when stage search produced it. `None` for a flat
+    #: policy, which is every result unless `config.search_stages` is on.
+    #:
+    #: `candidate` carries the thresholds either way, so everything downstream — selection,
+    #: explanation, Sentinel mapping — reads one surface. This is the structure on top: the
+    #: ordering, the early exits, and which stage saved the money.
+    policy: "Policy | None" = None
 
     # Flat accessors so profile selection can read one uniform surface instead of
     # reaching through three nested reports for every tie-breaker.
@@ -527,16 +543,180 @@ def beam_search(
     )
 
 
-def search_policies(
+class StagedPolicyEvaluator:
+    """Simulates staged policies, memoised on the `Policy` itself.
+
+    **Deliberately not the flat evaluator with an extra argument.** That one memoises on
+    `PolicyCandidate`, which carries thresholds but not structure — so two different
+    cascades over the same guardrails and thresholds would collide in its cache and the
+    second would silently receive the first one's metrics. Keying on the whole policy is
+    the only safe thing, and keeping it separate leaves the flat path untouched.
+    """
+
+    def __init__(self, request: OptimiserRequest) -> None:
+        self._request = request
+        self._definitions = request.guardrail_by_name
+        self._mean_latency = _mean_latency_by_guardrail(request)
+        self._cache: dict[Policy, EvaluatedPolicy] = {}
+
+    @property
+    def evaluation_count(self) -> int:
+        return len(self._cache)
+
+    def evaluate(self, policy: Policy) -> EvaluatedPolicy:
+        cached = self._cache.get(policy)
+        if cached is not None:
+            return cached
+
+        evaluations = tuple(
+            evaluate_staged_policy_on_case(
+                self._definitions, policy, case, self._request.config.treat_missing_as
+            )
+            for case in self._request.test_cases
+        )
+        binary = build_binary_report(self._request.test_cases, evaluations)
+        cm = binary.confusion_matrix
+
+        # A cascade's cost is per case: a request that exits early never pays for the
+        # stages it skipped. Averaging the routes actually taken is the only number that
+        # describes what this policy would have done.
+        latencies = [
+            latency
+            for evaluation in evaluations
+            if (
+                latency := route_latency_ms(
+                    policy, evaluation.stages_run, self._definitions, self._mean_latency
+                )
+            )
+            is not None
+        ]
+
+        evaluated = EvaluatedPolicy(
+            candidate=PolicyCandidate.of(
+                {
+                    binding.name: binding.thresholds()
+                    for stage in policy.stages
+                    for binding in stage.guardrails
+                }
+            ),
+            confusion_matrix=cm,
+            binary=binary,
+            intervention=build_intervention_report(self._request.test_cases, evaluations),
+            precision=precision(cm),
+            recall=recall(cm),
+            f05=f05(cm),
+            f1=f1(cm),
+            f2=f2(cm),
+            estimated_latency_ms=(sum(latencies) / len(latencies)) if latencies else None,
+            outcome_signature=tuple(
+                "excluded" if e.outcome is None else e.outcome.value for e in evaluations
+            ),
+            policy=policy,
+        )
+        self._cache[policy] = evaluated
+        return evaluated
+
+
+def _threshold_space_for(
+    spaces: Sequence[GuardrailCandidateSpace], names: Sequence[str]
+) -> int:
+    """How many threshold assignments a plan over `names` has.
+
+    No "disabled" option here: the plan already decided which guardrails are in it.
+    """
+    by_name = {space.guardrail_name: space for space in spaces}
+    size = 1
+    for name in names:
+        size *= len(by_name[name].pairs)
+    return size
+
+
+def stage_search(
     request: OptimiserRequest,
 ) -> tuple[list[EvaluatedPolicy], SearchDiagnostics]:
-    """The entry point callers should use: exhaustive when it is affordable, bounded
-    otherwise.
+    """Flat policies plus every affordable cascade over them.
 
-    Never raises on an oversized space. `CandidateSpaceTooLargeError` exists to stop an
-    uncontrolled enumeration, not to fail the request — so this catches it and switches
-    method, and the response reports which one ran.
+    Sized in two steps, both arithmetic and both before anything is evaluated. The plan
+    count is checked first because enumerating plans for a large guardrail set is itself
+    unaffordable; then the exact policy total is summed over those plans, since threshold
+    counts differ per guardrail and a uniform estimate would be wrong in both directions.
     """
+    flat, diagnostics = search_policies(request, _allow_stages=False)
+
+    spaces = build_candidate_space(request)
+    names = [space.guardrail_name for space in spaces]
+    limit = request.config.max_exhaustive_candidates
+    max_stage_size = request.config.max_stage_size
+
+    plan_count = count_stage_plans(len(names), max_stage_size)
+    check_combined_space(
+        stage_plan_count=plan_count, threshold_space_size=1, limit=limit
+    )
+
+    plans = list(enumerate_stage_plans(names, max_stage_size))
+    total = sum(
+        _threshold_space_for(spaces, [name for stage in plan for name in stage])
+        for plan in plans
+    )
+    check_combined_space(stage_plan_count=total, threshold_space_size=1, limit=limit)
+
+    evaluator = StagedPolicyEvaluator(request)
+    by_name = {space.guardrail_name: space for space in spaces}
+    staged: list[EvaluatedPolicy] = []
+
+    for plan in plans:
+        plan_names = [name for stage in plan for name in stage]
+        for combination in product(*(by_name[name].pairs for name in plan_names)):
+            thresholds = dict(zip(plan_names, combination))
+            policy = Policy(
+                name="staged",
+                stages=tuple(
+                    Stage(
+                        name=f"stage_{index}",
+                        guardrails=tuple(
+                            GuardrailBinding(
+                                name=name,
+                                score_direction=request.guardrail_by_name[
+                                    name
+                                ].score_direction,
+                                failed=thresholds[name].failed,
+                                warning=thresholds[name].warning,
+                                call_group=request.guardrail_by_name[name].call_group,
+                            )
+                            for name in stage
+                        ),
+                        parallel=len(stage) > 1,
+                        # Every stage but the last may exit early; the last has nothing to
+                        # skip. Exiting is what a cascade is for, so it is searched as the
+                        # default rather than as a variant.
+                        allow_exit=stage is not plan[-1],
+                    )
+                    for index, stage in enumerate(plan, start=1)
+                ),
+            )
+            staged.append(evaluator.evaluate(policy))
+
+    return flat + staged, diagnostics
+
+
+def search_policies(
+    request: OptimiserRequest,
+    *,
+    _allow_stages: bool = True,
+) -> tuple[list[EvaluatedPolicy], SearchDiagnostics]:
+    """The entry point callers should use: exhaustive when it is affordable, bounded
+    otherwise, and cascades too when `config.search_stages` asks for them.
+
+    Never raises on an oversized *threshold* space. `CandidateSpaceTooLargeError` exists to
+    stop an uncontrolled enumeration, not to fail the request — so this catches it and
+    switches method, and the response reports which one ran.
+
+    An oversized *stage* space does raise. A caller who asked for cascades and cannot have
+    them should be told, not quietly given the flat answer to a different question.
+    """
+    if _allow_stages and request.config.search_stages:
+        return stage_search(request)
+
     try:
         return exhaustive_search(request)
     except CandidateSpaceTooLargeError:

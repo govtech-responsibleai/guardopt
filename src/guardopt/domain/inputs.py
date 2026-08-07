@@ -204,6 +204,22 @@ class OptimiserConfig(BaseModel):
 
     treat_missing_as: MissingResultPolicy = MissingResultPolicy.ERROR
 
+    #: Search staged cascades as well as flat policies.
+    #:
+    #: **Off by default, and that is not timidity.** The space is the stage plans times the
+    #: threshold space — roughly a thousand-fold multiplier on a five-guardrail problem. A
+    #: caller who wants a flat policy, which is most of them, should not pay that, and
+    #: turning it on silently would change every existing recommendation.
+    #:
+    #: It earns its cost when guardrails differ sharply in price: a cascade that reaches the
+    #: same verdicts as a flat policy more cheaply dominates it, now that latency is a
+    #: frontier axis.
+    search_stages: bool = False
+
+    #: Widest parallel stage a plan may contain. The plan space grows steeply in this, so
+    #: it is bounded rather than free.
+    max_stage_size: int = Field(default=3, ge=1)
+
     model_config = ConfigDict(from_attributes=True)
 
 
