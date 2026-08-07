@@ -180,6 +180,16 @@ class CaseEvaluation:
     guardrail_outcomes: tuple[tuple[str, GuardrailOutcome], ...]
     missing_guardrails: tuple[str, ...]
 
+    #: Which stages ran, and which the walk skipped. Empty for a flat policy, which has no
+    #: stages to speak of. These live here rather than on a parallel staged result type so
+    #: that metrics handle one shape, not two.
+    stages_run: tuple[str, ...] = ()
+    stages_skipped: tuple[str, ...] = ()
+
+    #: True when the walk stopped at an `allow_exit` stage. Distinct from stopping because
+    #: something failed: an early exit means nothing had fired *and* nothing was unresolved.
+    exited_early: bool = False
+
     @property
     def is_excluded(self) -> bool:
         return self.outcome is None
