@@ -1,19 +1,42 @@
-"""The precision/recall Pareto frontier (brief §11).
+"""The Pareto frontier (brief §11), over precision, recall and — when measured — latency.
 
     A dominates B  <=>  A.precision >= B.precision
                     AND A.recall    >= B.recall
+                    AND A.latency   <= B.latency      (only when both are measured)
                     AND A is strictly better on at least one
 
 Dominated candidates are removed because there is no trade-off in which they win —
 recommending one would be indefensible to anybody who looked.
 
-**Only precision and recall enter here.** Warning burden, latency and guardrail count
-stay out on purpose: the brief requires them to remain visible as secondary tie-breakers
-rather than being folded into a composite score. A single blended number is impossible
+**Warning burden and guardrail count still stay out**, and so does any weighting. The
+brief's rule was that these remain visible as secondary tie-breakers "rather than being
+folded into a composite score", and that rule stands: a single blended number is impossible
 to argue with, and being arguable is the point of this surface.
+
+**Latency became an axis when the engines merged, and that is not a reversal of it.** A
+third Pareto axis is the opposite of blending — it keeps latency separate and visible, and
+never trades a point of recall for a millisecond. What it adds is the ability to say "worse
+at nothing, and faster", which is the entire reason anyone builds a cascade; without it the
+merged engine cannot express that half's value at all.
+
+**It counts only when both sides have it.** With no timings — which is every golden fixture
+— the axis is always a tie and the frontier is exactly what it was. So the original
+decision holds precisely in the context it was made for, and the new behaviour appears only
+where that context never applied.
+
+Two consequences, derived rather than observed:
+
+  * **The three profiles' metrics cannot get worse.** A newly-surviving policy was
+    previously dominated on precision and recall, so something else was >= on both; F is
+    monotonic in both, so a dominated policy's F never exceeds its dominator's.
+  * **Exact precision/recall ties that are strictly slower now drop out.** Their F-measures
+    are identical, so the best F is unchanged — only which policy achieves it moves, and it
+    moves towards the faster one, which is what the tie-breakers already wanted.
 
 This module is intentionally structural — it works on anything carrying `precision` and
 `recall`, so it does not drag in the whole `EvaluatedPolicy` and stays trivially testable.
+Latency is read with `getattr`, so a point without the attribute simply has none, and that
+promise is unchanged.
 """
 
 from collections.abc import Sequence
@@ -21,7 +44,12 @@ from typing import Protocol, TypeVar
 
 
 class PrecisionRecallPoint(Protocol):
-    """Structural interface: the frontier needs nothing beyond these two."""
+    """Structural interface: the frontier needs nothing beyond these two.
+
+    `estimated_latency_ms` is consulted if present but is deliberately **not** part of the
+    Protocol — requiring it would break every caller that has only accuracy to offer, which
+    is the structural promise this module makes.
+    """
 
     @property
     def precision(self) -> float | None: ...
@@ -53,18 +81,38 @@ def partition_by_measurability(
     return measurable, unmeasurable
 
 
-def dominates(a: PrecisionRecallPoint, b: PrecisionRecallPoint) -> bool:
-    """True when `a` is at least as good on both axes and strictly better on one.
+def _latency_of(point: PrecisionRecallPoint) -> float | None:
+    """This point's latency, or None.
 
-    Returns False whenever either side has an undefined metric: comparing a measured
-    candidate with an unmeasured one is not a comparison, and treating `None` as 0 would
-    let a policy that blocked nothing eliminate one that worked.
+    Read with `getattr` on purpose: the frontier is structural and works on anything with
+    a precision and a recall. A point that carries no latency simply has none, and is then
+    compared on two axes exactly as before.
+    """
+    return getattr(point, "estimated_latency_ms", None)
+
+
+def dominates(a: PrecisionRecallPoint, b: PrecisionRecallPoint) -> bool:
+    """True when `a` is at least as good on every comparable axis and strictly better on one.
+
+    Returns False whenever either side has an undefined precision or recall: comparing a
+    measured candidate with an unmeasured one is not a comparison, and treating `None` as 0
+    would let a policy that blocked nothing eliminate one that worked.
+
+    **Latency participates only when both sides report it.** One-sided timing is not a
+    comparison either, and eliminating a policy on the strength of a number the other never
+    reported is the same mistake in a different unit.
     """
     if not (is_measurable(a) and is_measurable(b)):
         return False
 
     at_least_as_good = a.precision >= b.precision and a.recall >= b.recall
     strictly_better = a.precision > b.precision or a.recall > b.recall
+
+    latency_a, latency_b = _latency_of(a), _latency_of(b)
+    if latency_a is not None and latency_b is not None:
+        at_least_as_good = at_least_as_good and latency_a <= latency_b
+        strictly_better = strictly_better or latency_a < latency_b
+
     return at_least_as_good and strictly_better
 
 
