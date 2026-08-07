@@ -121,10 +121,18 @@ Most of these exist because the opposite went wrong somewhere first.
 
 - [Concepts](docs/concepts.md) — guardrails, thresholds, the three bands, policies, profiles
 - [Optimising](docs/optimising.md) — the quickstart, preparing data, reading results
-- [Runtime](docs/runtime.md) — calling guardrails and enforcing a policy
+- [Runtime](docs/runtime.md) — calling guardrails, and enforcing a policy or a cascade
 - [Policy schema](docs/policy-schema.md) — the portable artifact, field by field
 - [Methodology](docs/methodology.md) — how the search works, and what it does not prove
+- [Migrating](docs/migrating.md) — from `guardrail-router`, with what you gain and lose
 - [Sentinel](docs/sentinel.md) — the optional adapter
+
+### Cascades
+
+A policy can be a single parallel stage, or an ordered cascade where cheap checks settle
+most requests and expensive ones run only when they cannot. The optimiser will **design**
+one (`OptimiserConfig(search_stages=True)`), the runtime **executes** it, and both reach the
+identical verdicts — asserted by a test across seven score shapes, not merely intended.
 
 ## Why not an existing tool
 
