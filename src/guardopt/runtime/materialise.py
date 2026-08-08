@@ -85,6 +85,7 @@ def _error_rows(guard: Guardrail, reading: GuardrailReading) -> list[GuardrailTe
             guardrail_name=signal,
             error=reading.error,
             latency_ms=reading.latency_ms,
+            cost=reading.cost,
         )
         for signal in signals
     ]
@@ -109,6 +110,7 @@ async def _score_record(
                     guardrail_name=signal,
                     score=score,
                     latency_ms=reading.latency_ms,
+                    cost=reading.cost,
                 )
             )
 

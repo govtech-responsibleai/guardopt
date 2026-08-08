@@ -42,6 +42,14 @@ demanded.
 
 ### Added
 
+- **The money half of the cost model, wired to data.** A per-call price reaches the
+  optimiser from either side — observed `cost` on result rows (carried through
+  `materialise`), or a declared `GuardrailDefinition.cost_per_call` — with measured
+  beating declared. `EvaluatedPolicy.estimated_cost` charges per call group (money sums
+  where latency takes the max; a cascade pays only for the routes taken), cost joins the
+  Pareto frontier as a fourth axis under the latency rules, explanations and the report
+  state it, staged cards quote the p95 route latency, and `RouteTrace` reports `None`
+  rather than 0.0 when nothing was measured.
 - **Failure containment and budgets in the router.** A raising guardrail becomes an
   error reading (never a pass, never an early exit); an optional `timeout_ms` bounds
   every call by abandoning overruns. Sync guardrails run on worker threads, so parallel

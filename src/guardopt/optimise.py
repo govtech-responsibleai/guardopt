@@ -55,10 +55,12 @@ from guardopt.domain.metrics import (
 )
 from guardopt.domain.policy import Policy
 from guardopt.domain.route import evaluate_staged_policy_on_case
+from guardopt.domain.route_cost import percentile, route_latency_ms
 from guardopt.domain.search import (
     EvaluatedPolicy,
     PolicyEvaluator,
     SearchDiagnostics,
+    mean_latency_by_guardrail,
     search_policies,
 )
 from guardopt.domain.selection import select_profiles
@@ -245,23 +247,40 @@ def _staged_route_note(
     definitions: Mapping[str, GuardrailDefinition],
     request: OptimiserRequest,
 ) -> str | None:
-    """What fraction of the dataset the cascade settled early — measured, not asserted."""
+    """What fraction of the dataset the cascade settled early, and what the deep routes
+    cost — measured, not asserted.
+
+    The p95 is the honest counterpart to the mean the card already shows: a cascade's
+    cost is a distribution, and the mean alone hides exactly the tail that hurts.
+    """
     staged = evaluated.policy
     if staged is None or staged.is_flat or not request.test_cases:
         return None
 
-    exited = sum(
-        1
-        for case in request.test_cases
-        if evaluate_staged_policy_on_case(
+    walks = [
+        evaluate_staged_policy_on_case(
             definitions, staged, case, request.config.treat_missing_as
-        ).exited_early
-    )
-    share = format_percentage(exited / len(request.test_cases))
-    return (
+        )
+        for case in request.test_cases
+    ]
+    exited = sum(1 for walk in walks if walk.exited_early)
+    share = format_percentage(exited / len(walks))
+    note = (
         f"On this dataset, {share} of requests were settled by an early exit before "
         f"the final stage."
     )
+
+    mean_latency = mean_latency_by_guardrail(request)
+    route_latencies = [
+        latency
+        for walk in walks
+        if (latency := route_latency_ms(staged, walk.stages_run, definitions, mean_latency))
+        is not None
+    ]
+    p95 = percentile(route_latencies, 95)
+    if p95 is not None:
+        note += f" The slowest 5% of routes add about {round(p95)} ms or more."
+    return note
 
 
 def _artifact_for(

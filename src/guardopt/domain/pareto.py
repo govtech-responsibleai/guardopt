@@ -91,6 +91,12 @@ def _latency_of(point: PrecisionRecallPoint) -> float | None:
     return getattr(point, "estimated_latency_ms", None)
 
 
+def _cost_of(point: PrecisionRecallPoint) -> float | None:
+    """This point's per-request cost, or None. Same structural contract as latency —
+    and the same rule below: the axis participates only when both sides report it."""
+    return getattr(point, "estimated_cost", None)
+
+
 def dominates(a: PrecisionRecallPoint, b: PrecisionRecallPoint) -> bool:
     """True when `a` is at least as good on every comparable axis and strictly better on one.
 
@@ -118,6 +124,14 @@ def dominates(a: PrecisionRecallPoint, b: PrecisionRecallPoint) -> bool:
     if latency_a is not None and latency_b is not None:
         at_least_as_good = at_least_as_good and latency_a <= latency_b
         strictly_better = strictly_better or latency_a < latency_b
+
+    # Cost is the fourth axis, under exactly the latency rules: never traded against a
+    # point of recall, counted only when both sides priced it. "Worse at nothing, and
+    # cheaper" is the money half of the reason anyone builds a cascade.
+    cost_a, cost_b = _cost_of(a), _cost_of(b)
+    if cost_a is not None and cost_b is not None:
+        at_least_as_good = at_least_as_good and cost_a <= cost_b
+        strictly_better = strictly_better or cost_a < cost_b
 
     return at_least_as_good and strictly_better
 

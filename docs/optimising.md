@@ -151,7 +151,15 @@ evaluated.f05, evaluated.f1, evaluated.f2
 evaluated.false_positives      # int
 evaluated.false_negatives
 evaluated.estimated_latency_ms # float | None, when timings were supplied
+evaluated.estimated_cost       # float | None, when prices were supplied
 ```
+
+Money comes from either side of the data: an observed `cost` on a result row (what
+`materialise` records when a guardrail reports one), or a declared
+`GuardrailDefinition(cost_per_call=...)` off the price sheet. Measured beats declared;
+neither means `None`, never a free-looking zero. Cost is a fourth frontier axis under
+the same rules as latency — "worse at nothing, and cheaper" wins, but no amount of money
+trades against a point of recall.
 
 Every metric is `float | None`. **`None` means undefined, not zero** — a policy that blocked
 nothing has no precision, and reporting `0.0` would claim it was wrong every time it

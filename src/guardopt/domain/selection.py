@@ -62,6 +62,7 @@ def minimal_sort_key(policy: Any) -> tuple:
         _asc(policy.safe_warning_rate),
         _asc(policy.enabled_count),
         _asc(policy.estimated_latency_ms),
+        _asc(getattr(policy, "estimated_cost", None)),
         policy.lexical_key,
     )
 
@@ -77,6 +78,7 @@ def balanced_sort_key(policy: Any) -> tuple:
         _asc(policy.false_negatives),
         _asc(policy.enabled_count),
         _asc(policy.estimated_latency_ms),
+        _asc(getattr(policy, "estimated_cost", None)),
         policy.lexical_key,
     )
 
@@ -92,6 +94,7 @@ def strict_sort_key(policy: Any) -> tuple:
         _asc(policy.safe_warning_rate),
         _asc(policy.enabled_count),
         _asc(policy.estimated_latency_ms),
+        _asc(getattr(policy, "estimated_cost", None)),
         policy.lexical_key,
     )
 
@@ -152,6 +155,7 @@ def _simplicity_key(policy: Any) -> tuple:
     return (
         _asc(getattr(policy, "enabled_count", 0)),
         _asc(getattr(policy, "estimated_latency_ms", None)),
+        _asc(getattr(policy, "estimated_cost", None)),
         getattr(policy, "lexical_key", ()),
     )
 
@@ -183,7 +187,11 @@ def _collapse_pareto_identical(policies: Sequence[Any]) -> tuple[Any, ...]:
         if not signature:
             passthrough.append(policy)
             continue
-        key = (signature, getattr(policy, "estimated_latency_ms", None))
+        key = (
+            signature,
+            getattr(policy, "estimated_latency_ms", None),
+            getattr(policy, "estimated_cost", None),
+        )
         incumbent = best.get(key)
         if incumbent is None:
             best[key] = policy

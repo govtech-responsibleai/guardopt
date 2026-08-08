@@ -45,6 +45,14 @@ def _summary_table(recommendations: tuple[ProfileRecommendation, ...]) -> list[s
                 else f"{round(r.evaluated.estimated_latency_ms)} ms"
             ),
         ),
+        (
+            "Est. cost / request",
+            lambda r: (
+                "—"
+                if r.evaluated.estimated_cost is None
+                else f"{r.evaluated.estimated_cost:.4g}"
+            ),
+        ),
     ]
     lines = [
         "| " + " | ".join(header) + " |",

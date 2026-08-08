@@ -297,8 +297,22 @@ def _guardrail_lines(
     )
 
 
+def _cost_clause(policy: Any) -> str:
+    """The money, appended only when a price was measured or declared.
+
+    The unit is the caller's own — the package never learns whether 0.004 is dollars or
+    credits, so it says "in your cost units" rather than inventing a currency.
+    """
+    cost = getattr(policy, "estimated_cost", None)
+    if cost is None:
+        return ""
+    return f" Each request costs about {cost:.4g}, in your cost units."
+
+
 def _operations_sentence(policy: Any) -> str | None:
-    if policy.enabled_count == 0 or policy.estimated_latency_ms is None:
+    latency = policy.estimated_latency_ms
+    cost = getattr(policy, "estimated_cost", None)
+    if policy.enabled_count == 0 or (latency is None and cost is None):
         return None
 
     count = policy.enabled_count
@@ -311,20 +325,28 @@ def _operations_sentence(policy: Any) -> str | None:
     staged = getattr(policy, "policy", None)
     if staged is not None and not staged.is_flat:
         stages = len(staged.stages)
+        if latency is None:
+            return (
+                f"Runs up to {count} {noun} across {stages} stages, stopping early when "
+                f"a stage settles the request." + _cost_clause(policy)
+            )
         return (
             f"Runs up to {count} {noun} across {stages} stages, stopping early when a stage "
-            f"settles the request — so it adds about {round(policy.estimated_latency_ms)} ms "
+            f"settles the request — so it adds about {round(latency)} ms "
             f"per request on average, varying with how far each request travels."
+            + _cost_clause(policy)
         )
 
+    if latency is None:
+        return f"Runs {count} {noun}." + _cost_clause(policy)
     if count == 1:
         return (
             f"Runs {count} {noun}, adding about "
-            f"{round(policy.estimated_latency_ms)} ms per request."
+            f"{round(latency)} ms per request." + _cost_clause(policy)
         )
     return (
         f"Runs {count} {noun}. They execute in parallel, so the added latency is the "
-        f"slowest one — about {round(policy.estimated_latency_ms)} ms per request."
+        f"slowest one — about {round(latency)} ms per request." + _cost_clause(policy)
     )
 
 

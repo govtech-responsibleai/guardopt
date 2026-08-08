@@ -44,7 +44,7 @@ from guardopt.domain.metrics_intervention import (
 )
 from guardopt.domain.policy import GuardrailBinding, Policy, Stage
 from guardopt.domain.route import evaluate_staged_policy_on_case
-from guardopt.domain.route_cost import route_latency_ms
+from guardopt.domain.route_cost import route_cost, route_latency_ms
 from guardopt.domain.selection import PROFILE_ORDER, PROFILE_SORT_KEYS
 from guardopt.domain.simulation import (
     GuardrailThresholds,
@@ -190,6 +190,13 @@ class EvaluatedPolicy:
 
     estimated_latency_ms: float | None
 
+    #: What a request costs under this policy, in the caller's own cost units. For a flat
+    #: policy: the sum over distinct calls — running calls together does not make them
+    #: free, so money sums where latency takes the max. For a cascade: the mean over the
+    #: routes actually taken. `None` when no price was measured or declared, never 0.0 —
+    #: an unknown price is not a free policy.
+    estimated_cost: float | None = None
+
     #: This policy's pass/warning/fail verdict on every case, in dataset order.
     #: Two policies with the same signature are INDISTINGUISHABLE in production, whatever
     #: their guardrail lists say. Recommending both as "different options" would be a
@@ -281,7 +288,8 @@ class PolicyEvaluator:
         self._request = request
         self._definitions = request.guardrail_by_name
         self._cache: dict[PolicyCandidate, EvaluatedPolicy] = {}
-        self._mean_latency = _mean_latency_by_guardrail(request)
+        self._mean_latency = mean_latency_by_guardrail(request)
+        self._mean_cost = mean_cost_by_guardrail(request)
         self.cache_hits = 0
 
     @property
@@ -324,6 +332,7 @@ class PolicyEvaluator:
             f1=f1(cm),
             f2=f2(cm),
             estimated_latency_ms=self._latency_for(candidate),
+            estimated_cost=self._cost_for(candidate),
             outcome_signature=tuple(
                 "excluded" if e.outcome is None else e.outcome.value for e in evaluations
             ),
@@ -347,8 +356,17 @@ class PolicyEvaluator:
         )
         return max(charges.values()) if charges else None
 
+    def _cost_for(self, candidate: PolicyCandidate) -> float | None:
+        """Money SUMS where latency takes the max: three guardrails running together
+        still make three calls. The charge collapse per call group is identical — which
+        calls happened is the same question whichever unit is billed."""
+        charges = latency_by_call_group(
+            candidate.enabled_names, self._definitions, self._mean_cost
+        )
+        return sum(charges.values()) if charges else None
 
-def _mean_latency_by_guardrail(request: OptimiserRequest) -> dict[str, float | None]:
+
+def mean_latency_by_guardrail(request: OptimiserRequest) -> dict[str, float | None]:
     totals: dict[str, list[float]] = {g.name: [] for g in request.guardrails}
     for case in request.test_cases:
         for result in case.guardrail_results:
@@ -356,6 +374,25 @@ def _mean_latency_by_guardrail(request: OptimiserRequest) -> dict[str, float | N
                 totals[result.guardrail_name].append(result.latency_ms)
     return {
         name: (sum(values) / len(values) if values else None)
+        for name, values in totals.items()
+    }
+
+
+def mean_cost_by_guardrail(request: OptimiserRequest) -> dict[str, float | None]:
+    """Per-call price per guardrail: the measured mean where calls reported one, the
+    declared `cost_per_call` where none did.
+
+    Measured beats declared because reality beats the price sheet; declared fills the
+    gaps because it is a caller-supplied fact, not a guess. A guardrail with neither is
+    `None` — an unknown price is never treated as free."""
+    totals: dict[str, list[float]] = {g.name: [] for g in request.guardrails}
+    for case in request.test_cases:
+        for result in case.guardrail_results:
+            if result.cost is not None and result.guardrail_name in totals:
+                totals[result.guardrail_name].append(result.cost)
+    declared = {g.name: g.cost_per_call for g in request.guardrails}
+    return {
+        name: (sum(values) / len(values) if values else declared[name])
         for name, values in totals.items()
     }
 
@@ -567,7 +604,8 @@ class StagedPolicyEvaluator:
     def __init__(self, request: OptimiserRequest) -> None:
         self._request = request
         self._definitions = request.guardrail_by_name
-        self._mean_latency = _mean_latency_by_guardrail(request)
+        self._mean_latency = mean_latency_by_guardrail(request)
+        self._mean_cost = mean_cost_by_guardrail(request)
         self._cache: dict[Policy, EvaluatedPolicy] = {}
         self.cache_hits = 0
 
@@ -603,6 +641,16 @@ class StagedPolicyEvaluator:
             )
             is not None
         ]
+        costs = [
+            cost
+            for evaluation in evaluations
+            if (
+                cost := route_cost(
+                    policy, evaluation.stages_run, self._definitions, self._mean_cost
+                )
+            )
+            is not None
+        ]
 
         evaluated = EvaluatedPolicy(
             candidate=PolicyCandidate.of(
@@ -621,6 +669,7 @@ class StagedPolicyEvaluator:
             f1=f1(cm),
             f2=f2(cm),
             estimated_latency_ms=(sum(latencies) / len(latencies)) if latencies else None,
+            estimated_cost=(sum(costs) / len(costs)) if costs else None,
             outcome_signature=tuple(
                 "excluded" if e.outcome is None else e.outcome.value for e in evaluations
             ),

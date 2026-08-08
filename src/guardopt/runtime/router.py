@@ -60,8 +60,13 @@ class RouteTrace:
     stages_run: tuple[str, ...]
     stages_skipped: tuple[str, ...]
     guardrails_run: tuple[str, ...]
-    latency_ms: float
-    cost: float
+
+    #: `None` when nothing reported a timing or a price — never 0.0. A request with no
+    #: measurements is unmeasured, not instant and free; the offline half of the same
+    #: cost model already keeps this rule, and the audit surface must not be the one
+    #: place in the package that flatters.
+    latency_ms: float | None
+    cost: float | None
     exited_early: bool
 
 
@@ -237,8 +242,8 @@ class GuardrailRouter:
         stages_skipped: list[str] = []
         guardrails_run: list[str] = []
 
-        latency = 0.0
-        cost = 0.0
+        latency: float | None = None
+        cost: float | None = None
         uncertain = False
         exited_early = False
         final: PolicyOutcome | None = None
@@ -257,8 +262,11 @@ class GuardrailRouter:
             # Cost always adds up — running calls together does not make them free.
             timings = [r.latency_ms for r in stage_readings if r.latency_ms is not None]
             if timings:
-                latency += max(timings) if stage.parallel else sum(timings)
-            cost += sum(r.cost for r in stage_readings if r.cost is not None)
+                stage_latency = max(timings) if stage.parallel else sum(timings)
+                latency = stage_latency if latency is None else latency + stage_latency
+            prices = [r.cost for r in stage_readings if r.cost is not None]
+            if prices:
+                cost = sum(prices) if cost is None else cost + sum(prices)
 
             by_signal = {
                 signal: score

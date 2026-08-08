@@ -54,6 +54,13 @@ class GuardrailDefinition(BaseModel):
     #: Read `call_group_key`, never this field directly.
     call_group: str | None = None
 
+    #: What one call to this guardrail costs, in whatever unit the caller bills in.
+    #: A caller-supplied fact off the price sheet, not a guess — the same standing as a
+    #: declared default threshold. Observed per-call costs on results take precedence
+    #: where they exist; this fills where nothing was measured. `None` means the price
+    #: is unknown, and an unknown price is never treated as free.
+    cost_per_call: float | None = Field(default=None, ge=0)
+
     model_config = ConfigDict(from_attributes=True)
 
     @property
@@ -111,6 +118,11 @@ class GuardrailTestResult(BaseModel):
     score: float | None = None
     error: str | None = None
     latency_ms: float | None = Field(default=None, ge=0)
+
+    #: What this call actually cost, when the scorer reported it. Like `latency_ms`, an
+    #: observation about the call rather than the verdict — and observed costs beat the
+    #: declared `GuardrailDefinition.cost_per_call` where both exist.
+    cost: float | None = Field(default=None, ge=0)
 
     model_config = ConfigDict(from_attributes=True)
 
