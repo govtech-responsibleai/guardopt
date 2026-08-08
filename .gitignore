@@ -14,3 +14,4 @@ site/
 
 # local 3.11 check venv
 .venv311/
+experiments/results/
