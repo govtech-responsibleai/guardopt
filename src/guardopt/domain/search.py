@@ -34,6 +34,7 @@ from guardopt.domain.metrics import (
     f05,
     f1,
     f2,
+    false_positive_rate,
     precision,
     recall,
 )
@@ -212,6 +213,16 @@ class EvaluatedPolicy:
     @property
     def false_negatives(self) -> int:
         return self.confusion_matrix.false_negatives
+
+    @property
+    def false_positive_rate(self) -> float | None:
+        """FP over actual negatives; `None` when the dataset has no safe cases.
+
+        Exists so `constraints.Constraints.max_false_positive_rate` reads a real number
+        off the engine's own type — without it, every FPR bar reported "not measured"
+        for every real policy and quietly forced the relaxed path.
+        """
+        return false_positive_rate(self.confusion_matrix)
 
     @property
     def total_safe_intervention_rate(self) -> float | None:
@@ -558,6 +569,7 @@ class StagedPolicyEvaluator:
         self._definitions = request.guardrail_by_name
         self._mean_latency = _mean_latency_by_guardrail(request)
         self._cache: dict[Policy, EvaluatedPolicy] = {}
+        self.cache_hits = 0
 
     @property
     def evaluation_count(self) -> int:
@@ -566,6 +578,7 @@ class StagedPolicyEvaluator:
     def evaluate(self, policy: Policy) -> EvaluatedPolicy:
         cached = self._cache.get(policy)
         if cached is not None:
+            self.cache_hits += 1
             return cached
 
         evaluations = tuple(
@@ -640,20 +653,34 @@ def stage_search(
     count is checked first because enumerating plans for a large guardrail set is itself
     unaffordable; then the exact policy total is summed over those plans, since threshold
     counts differ per guardrail and a uniform estimate would be wrong in both directions.
+
+    **Mandatory guardrails are enforced here exactly as the flat search enforces them.** The
+    flat path never offers a mandatory guardrail its "disabled" slot; the staged path is a
+    subset enumeration, so the equivalent is to drop any plan that leaves a mandatory
+    guardrail out. Dropping those plans before the exact policy total is summed keeps the
+    size guard honest — it counts what will actually be enumerated, not cascades the search
+    would never emit.
     """
-    flat, diagnostics = search_policies(request, _allow_stages=False)
+    flat, flat_diagnostics = search_policies(request, _allow_stages=False)
 
     spaces = build_candidate_space(request)
     names = [space.guardrail_name for space in spaces]
+    mandatory = frozenset(s.guardrail_name for s in spaces if s.is_mandatory)
     limit = request.config.max_exhaustive_candidates
     max_stage_size = request.config.max_stage_size
 
+    # count_stage_plans counts every plan; mandatory filtering only removes plans, so it
+    # stays a valid upper bound on the enumeration this function is about to perform.
     plan_count = count_stage_plans(len(names), max_stage_size)
     check_combined_space(
         stage_plan_count=plan_count, threshold_space_size=1, limit=limit
     )
 
-    plans = list(enumerate_stage_plans(names, max_stage_size))
+    plans = [
+        plan
+        for plan in enumerate_stage_plans(names, max_stage_size)
+        if mandatory.issubset(name for stage in plan for name in stage)
+    ]
     total = sum(
         _threshold_space_for(spaces, [name for stage in plan for name in stage])
         for plan in plans
@@ -696,6 +723,19 @@ def stage_search(
             )
             staged.append(evaluator.evaluate(policy))
 
+    # The recommendation is chosen from the flat space AND every cascade over it, so the
+    # diagnostics have to describe both. Reporting the flat search's own method and counts
+    # would credit a staged pick to a search that never saw a cascade.
+    diagnostics = SearchDiagnostics(
+        method=SearchMethod.STAGED,
+        estimated_space_size=flat_diagnostics.estimated_space_size + total,
+        evaluated_candidate_count=(
+            flat_diagnostics.evaluated_candidate_count + evaluator.evaluation_count
+        ),
+        cache_hits=flat_diagnostics.cache_hits + evaluator.cache_hits,
+        rounds_run=flat_diagnostics.rounds_run,
+        converged=flat_diagnostics.converged,
+    )
     return flat + staged, diagnostics
 
 

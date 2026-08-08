@@ -11,6 +11,7 @@ flows through the same path a missing score does — it never becomes a pass, an
 lets a cascade exit early.
 """
 
+import http.client
 import json
 import time
 import urllib.error
@@ -84,13 +85,29 @@ class HttpJsonGuardrail:
             method="POST",
         )
 
+        # Parsing sits INSIDE the try, alongside the transport. A 200 response carrying
+        # {"score": "high"} is exactly as much of a failed check as a refused connection:
+        # in both cases this guardrail produced no usable score, and the difference must
+        # not be that one becomes an error reading while the other raises out of a live
+        # request. The except tuple is broad for the same reason — `response.read()` can
+        # raise `http.client.IncompleteRead` or `ConnectionResetError` (an OSError), and a
+        # custom `parse_response` can raise `KeyError`/`TypeError` on a shape it did not
+        # expect. Every one of those means "we could not check", never a crash and never
+        # a pass.
         try:
             with urllib.request.urlopen(
                 http_request, timeout=self.timeout_seconds
             ) as response:
                 raw = response.read().decode("utf-8")
-                payload = json.loads(raw) if raw else {}
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as error:
+            payload = json.loads(raw) if raw else {}
+            scores = dict(self._parse(payload))
+            latency_ms = float(
+                # The service's own timing if it reports one; ours otherwise. Its number
+                # excludes the network, so it is the better estimate of what the call
+                # costs when it is available.
+                payload.get("latency_ms", (time.perf_counter() - started) * 1000)
+            )
+        except (OSError, ValueError, TypeError, KeyError, http.client.HTTPException) as error:
             # An error, not a score. "We could not check" must stay distinguishable from
             # "we checked and were unsure", or an outage reads as borderline traffic.
             return GuardrailReading(
@@ -102,10 +119,7 @@ class HttpJsonGuardrail:
 
         return GuardrailReading(
             guardrail_name=self.name,
-            scores=dict(self._parse(payload)),
-            # The service's own timing if it reports one; ours otherwise. Its number
-            # excludes the network, so it is the better estimate of what the call costs
-            # when it is available.
-            latency_ms=float(payload.get("latency_ms", (time.perf_counter() - started) * 1000)),
+            scores=scores,
+            latency_ms=latency_ms,
             cost=self.cost_per_call,
         )

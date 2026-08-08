@@ -29,6 +29,7 @@ from guardopt.domain.search import search_policies
 from guardopt.domain.stage_plans import StagePlanSpaceTooLargeError
 from guardopt.domain.types import ExpectedAction, ScoreDirection, SearchMethod
 from guardopt.fixtures import golden
+from guardopt.optimise import optimise
 
 pytestmark = pytest.mark.unit
 
@@ -36,7 +37,13 @@ HIGHER = ScoreDirection.HIGHER_IS_RISKIER
 BLOCK, ALLOW = ExpectedAction.BLOCK, ExpectedAction.ALLOW
 
 
-def _request(*, search_stages: bool, max_stage_size: int = 2, **config) -> OptimiserRequest:
+def _request(
+    *,
+    search_stages: bool,
+    max_stage_size: int = 2,
+    mandatory: tuple[str, ...] = (),
+    **config,
+) -> OptimiserRequest:
     """A small two-guardrail problem where a cheap check can settle most cases.
 
     `cheap` is fast and decisive on the obvious traffic; `dear` is slow and only needed for
@@ -44,10 +51,12 @@ def _request(*, search_stages: bool, max_stage_size: int = 2, **config) -> Optim
     """
     definitions = [
         GuardrailDefinition(
-            name="cheap", score_direction=HIGHER, minimum_score=0.0, maximum_score=1.0
+            name="cheap", score_direction=HIGHER, minimum_score=0.0, maximum_score=1.0,
+            is_mandatory="cheap" in mandatory,
         ),
         GuardrailDefinition(
-            name="dear", score_direction=HIGHER, minimum_score=0.0, maximum_score=1.0
+            name="dear", score_direction=HIGHER, minimum_score=0.0, maximum_score=1.0,
+            is_mandatory="dear" in mandatory,
         ),
     ]
 
@@ -216,4 +225,61 @@ def test_a_cascade_that_matches_a_flat_policy_more_cheaply_survives_it():
     assert cheaper_cascade_exists, (
         "no cascade reached the same verdicts more cheaply than its flat equivalent — "
         "either the early exit is not saving anything, or latency is not being credited"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Mandatory guardrails, enforced in cascades too
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_stage_search_keeps_mandatory_guardrails_in_every_cascade():
+    """The flat search never offers a mandatory guardrail its 'off' slot. A cascade is a
+    subset enumeration, so the equivalent is that no plan may leave one out — without this a
+    cascade could be recommended that drops a required check, silently violating the one
+    hard invariant the search has."""
+    policies, _ = search_policies(_request(search_stages=True, mandatory=("dear",)))
+
+    staged = [p for p in policies if p.policy is not None]
+    assert staged, "stage search produced no staged policies"
+    for policy in staged:
+        assert "dear" in policy.policy.enabled_names, (
+            "a cascade omitted a mandatory guardrail"
+        )
+
+    # The flat half honours it too — this is the invariant the whole search shares.
+    for policy in policies:
+        assert "dear" in policy.candidate.enabled_names
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# The whole entry point, with staging on
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_optimise_runs_end_to_end_with_stage_search_on():
+    """A staged selection has to survive the warning ladder and reach a recommendation with
+    its stage structure intact. Before the fix this either tripped an assertion (bands added
+    to a staged pick) or silently flattened the cascade back to a bare candidate."""
+    result = optimise(_request(search_stages=True))
+
+    assert result.recommendations
+    assert result.search_method is SearchMethod.STAGED
+    for recommendation in result.recommendations:
+        # A staged recommendation keeps its stages; a flat one carries no policy structure.
+        if recommendation.evaluated.policy is not None:
+            assert recommendation.evaluated.policy.stages
+
+
+def test_staged_diagnostics_describe_the_staged_search_not_the_flat_one():
+    """A staged recommendation must not be described by the flat search that only produced
+    its baseline: the reported method is STAGED and the counts include the cascade space."""
+    flat, flat_diagnostics = search_policies(_request(search_stages=False))
+    _, staged_diagnostics = search_policies(_request(search_stages=True))
+
+    assert staged_diagnostics.method is SearchMethod.STAGED
+    assert staged_diagnostics.estimated_space_size > flat_diagnostics.estimated_space_size
+    assert (
+        staged_diagnostics.evaluated_candidate_count
+        > flat_diagnostics.evaluated_candidate_count
     )

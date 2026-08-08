@@ -18,7 +18,8 @@ latency figures that were fiction.
 """
 
 import asyncio
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,11 +27,26 @@ from typing import Any
 from guardopt.domain.inputs import GuardrailDefinition, GuardrailTestResult
 from guardopt.domain.policy import Policy
 from guardopt.domain.route import stage_verdict
-from guardopt.domain.simulation import evaluate_guardrail
+from guardopt.domain.simulation import (
+    InvalidThresholdError,
+    evaluate_guardrail,
+    validate_thresholds,
+)
 from guardopt.domain.types import GuardrailOutcome, PolicyOutcome, StageCondition
 from guardopt.runtime.protocol import Guardrail, GuardrailReading, read_guardrail
 
 __all__ = ["GuardrailRouter", "RouteTrace", "RoutedDecision"]
+
+
+def _discard_abandoned_result(task: "asyncio.Task") -> None:
+    """Retrieve and drop whatever an abandoned (timed-out) call eventually produced.
+
+    Without this, a guardrail that raises after its budget expired logs asyncio's
+    "exception was never retrieved" warning — noise about a call whose outcome was
+    already decided to be an error reading.
+    """
+    if not task.cancelled():
+        task.exception()
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +77,12 @@ class RoutedDecision:
     #: The per-guardrail verdicts that produced `outcome`.
     outcomes: tuple[tuple[str, GuardrailOutcome], ...] = ()
 
+    #: Which policy decided this, and when. Once policies rotate, "why was this blocked
+    #: last Tuesday?" has no answer unless the decision names the policy that made it.
+    policy_name: str = ""
+    policy_schema_version: str = ""
+    decided_at: float | None = None
+
 
 class GuardrailRouter:
     """Runs a `Policy` against live requests."""
@@ -70,6 +92,9 @@ class GuardrailRouter:
         guards: Sequence[Guardrail] | Mapping[str, Guardrail],
         policy: Policy,
         definitions: Mapping[str, GuardrailDefinition],
+        *,
+        timeout_ms: float | None = None,
+        on_decision: Callable[[RoutedDecision], None] | None = None,
     ) -> None:
         self.guards: dict[str, Guardrail] = (
             dict(guards)
@@ -78,6 +103,21 @@ class GuardrailRouter:
         )
         self.policy = policy
         self.definitions = dict(definitions)
+
+        #: Per-call budget. A guardrail that has not answered by then is treated as
+        #: errored — never as a pass, and never as permission to exit early — bounding
+        #: the worst-case latency of a live request whatever a guardrail implementation
+        #: does. The runtime counterpart of "refuse oversized searches rather than hang".
+        if timeout_ms is not None and timeout_ms <= 0:
+            raise ValueError(f"timeout_ms must be positive, got {timeout_ms}")
+        self.timeout_ms = timeout_ms
+
+        #: Called with every decision, after it is made. The audit hook: wire logging,
+        #: metrics or a `runtime.monitor.DecisionAggregator` here. Runs inline on the
+        #: request path, so it must be cheap and must not raise — an exception from it
+        #: fails the live request it observed.
+        self.on_decision = on_decision
+
         self._validate()
 
     def _validate(self) -> None:
@@ -114,6 +154,31 @@ class GuardrailRouter:
                 f"direction lives on the definition and is never guessed."
             )
 
+        # The policy file and the in-code definitions are two statements of the same
+        # facts, and this router reads direction from the definition. A file that says
+        # lower-is-riskier paired with a definition that says higher would silently
+        # invert every verdict that guardrail produces — the exact "two sources of truth"
+        # failure `migrate.py` refuses on the offline side, refused here for the same
+        # reason. Threshold ranges are checked with the validator the simulator itself
+        # uses, so an out-of-range threshold fails at startup, not on the first request.
+        for stage in self.policy.stages:
+            for binding in stage.guardrails:
+                definition = self.definitions[binding.name]
+                if binding.score_direction is not definition.score_direction:
+                    raise ValueError(
+                        f"guardrail '{binding.name}': the policy says "
+                        f"{binding.score_direction.value} but the definition says "
+                        f"{definition.score_direction.value}. One of them is wrong, and "
+                        f"running with either guess silently inverts every verdict this "
+                        f"guardrail produces."
+                    )
+                try:
+                    validate_thresholds(definition, binding.thresholds())
+                except InvalidThresholdError as error:
+                    raise ValueError(
+                        f"the policy's thresholds cannot be enforced: {error}"
+                    ) from error
+
     def _guard_for(self, binding_name: str) -> Guardrail | None:
         """The guardrail that produces this binding's score.
 
@@ -131,8 +196,17 @@ class GuardrailRouter:
         path: str | Path,
         guards: Sequence[Guardrail] | Mapping[str, Guardrail],
         definitions: Mapping[str, GuardrailDefinition],
+        *,
+        timeout_ms: float | None = None,
+        on_decision: Callable[[RoutedDecision], None] | None = None,
     ) -> "GuardrailRouter":
-        return cls(guards=guards, policy=Policy.from_file(path), definitions=definitions)
+        return cls(
+            guards=guards,
+            policy=Policy.from_file(path),
+            definitions=definitions,
+            timeout_ms=timeout_ms,
+            on_decision=on_decision,
+        )
 
     async def run(self, request: Mapping[str, Any]) -> RoutedDecision:
         readings: list[GuardrailReading] = []
@@ -218,7 +292,7 @@ class GuardrailRouter:
             final = PolicyOutcome.WARNING if uncertain else PolicyOutcome.PASS
             reason = "flagged" if uncertain else "cleared"
 
-        return RoutedDecision(
+        decision = RoutedDecision(
             outcome=final,
             reason=reason,
             readings=tuple(readings),
@@ -231,7 +305,57 @@ class GuardrailRouter:
                 cost=cost,
                 exited_early=exited_early,
             ),
+            policy_name=self.policy.name,
+            policy_schema_version=self.policy.schema_version,
+            decided_at=time.time(),
         )
+        if self.on_decision is not None:
+            self.on_decision(decision)
+        return decision
+
+    async def _read_contained(
+        self, guard: Guardrail, request: Mapping[str, Any]
+    ) -> GuardrailReading:
+        """One call, with its failure modes converted to error readings.
+
+        A raising guardrail used to propagate out of the request — and in a parallel
+        stage, discard its siblings' readings on the way. But an exception is just a
+        louder way of saying "this guardrail could not run", and the package already has
+        exact semantics for that: an error reading, which never counts as a pass and
+        never permits an early exit. Converting instead of propagating turns a
+        process-crashing exception into the fail-safe WARNING path.
+
+        The timeout uses `asyncio.wait`, NOT `wait_for` — deliberately. `wait_for`
+        cancels the overrunning task and then *awaits the cancellation*, and a sync
+        guardrail blocked in a socket read cannot be cancelled: its thread acknowledges
+        nothing until the read returns, so `wait_for` would spend exactly the time the
+        budget exists to bound. The overrunning call is abandoned instead — its thread
+        runs to completion in the background and its result is explicitly discarded.
+
+        `except Exception`, not BaseException: cancellation must still propagate, or a
+        shutting-down server would hold requests open converting its own cancellations
+        into verdicts.
+        """
+        try:
+            if self.timeout_ms is None:
+                return await read_guardrail(guard, request)
+
+            task = asyncio.ensure_future(read_guardrail(guard, request))
+            done, pending = await asyncio.wait({task}, timeout=self.timeout_ms / 1000.0)
+            if pending:
+                task.cancel()
+                task.add_done_callback(_discard_abandoned_result)
+                return GuardrailReading(
+                    guardrail_name=guard.name,
+                    error=f"timed out after {self.timeout_ms:g} ms",
+                    latency_ms=self.timeout_ms,
+                )
+            return task.result()
+        except Exception as error:
+            return GuardrailReading(
+                guardrail_name=guard.name,
+                error=f"{type(error).__name__}: {error}",
+            )
 
     async def _run_stage(
         self, stage, request: Mapping[str, Any]
@@ -251,10 +375,10 @@ class GuardrailRouter:
         if stage.parallel:
             return list(
                 await asyncio.gather(
-                    *[read_guardrail(guard, request) for guard in sources.values()]
+                    *[self._read_contained(guard, request) for guard in sources.values()]
                 )
             )
-        return [await read_guardrail(guard, request) for guard in sources.values()]
+        return [await self._read_contained(guard, request) for guard in sources.values()]
 
     def run_sync(self, request: Mapping[str, Any]) -> RoutedDecision:
         return asyncio.run(self.run(request))

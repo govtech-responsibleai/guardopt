@@ -41,6 +41,27 @@ __all__ = [
 POLICY_SCHEMA_VERSION = "guardopt.policy.v2"
 
 
+def _refuse_unknown_keys(
+    payload: dict[str, Any], known: frozenset[str], where: str
+) -> None:
+    """Refuse rather than accept-and-mangle — the contract policy-schema.md states.
+
+    A hand-edited file with `"warnning": 0.5` used to load silently as a never-flags
+    binding: fewer interventions, no error, nothing to see. Naming the offending key and
+    its JSON path turns a silent behaviour change into a refusal the editor sees
+    immediately. It also protects against version skew in the other direction: a future
+    field on a newer writer is refused by an older reader instead of being dropped.
+    """
+    unknown = sorted(set(payload) - known)
+    if unknown:
+        keys = ", ".join(repr(key) for key in unknown)
+        raise ValueError(
+            f"{where}: unknown key{'s' if len(unknown) > 1 else ''} {keys}. "
+            f"Policy files are read strictly — a misspelled or future field would "
+            f"otherwise change behaviour silently."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class GuardrailBinding:
     """One guardrail as configured in a policy: where it blocks, and where it flags.
@@ -96,8 +117,20 @@ class GuardrailBinding:
             payload["call_group"] = self.call_group
         return payload
 
+    _KNOWN_KEYS = frozenset({"name", "score_direction", "failed", "warning", "call_group"})
+
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "GuardrailBinding":
+    def from_dict(
+        cls, payload: dict[str, Any], *, where: str = "guardrail binding"
+    ) -> "GuardrailBinding":
+        _refuse_unknown_keys(payload, cls._KNOWN_KEYS, where)
+        if "warning" in payload and payload["warning"] is None:
+            # Absent, not null. `to_dict` never writes null, so a null here is a hand
+            # edit — and accepting it would make "never flags" writable two ways.
+            raise ValueError(
+                f"{where}: \"warning\": null is refused. Omit the key entirely — an "
+                f"absent warning threshold is how 'never flags' is written."
+            )
         return cls(
             name=str(payload["name"]),
             score_direction=ScoreDirection(payload["score_direction"]),
@@ -149,12 +182,18 @@ class Stage:
             "resolves_uncertainty": self.resolves_uncertainty,
         }
 
+    _KNOWN_KEYS = frozenset(
+        {"name", "guardrails", "parallel", "condition", "allow_exit", "resolves_uncertainty"}
+    )
+
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "Stage":
+    def from_dict(cls, payload: dict[str, Any], *, where: str = "stage") -> "Stage":
+        _refuse_unknown_keys(payload, cls._KNOWN_KEYS, where)
         return cls(
             name=str(payload["name"]),
             guardrails=tuple(
-                GuardrailBinding.from_dict(g) for g in payload["guardrails"]
+                GuardrailBinding.from_dict(g, where=f"{where}.guardrails[{i}]")
+                for i, g in enumerate(payload["guardrails"])
             ),
             parallel=bool(payload.get("parallel", True)),
             condition=StageCondition(payload.get("condition", StageCondition.ALWAYS.value)),
@@ -174,6 +213,20 @@ class Policy:
     def __post_init__(self) -> None:
         if not self.stages:
             raise ValueError(f"policy '{self.name}' needs at least one stage")
+
+        # Uncertainty can only arise from a stage that already ran, so a first stage
+        # gated on it can never run — and every ON_UNCERTAIN stage after it is equally
+        # unreachable until an ALWAYS stage appears. The all-ON_UNCERTAIN extreme is a
+        # policy that consults zero guardrails and passes everything: a total
+        # pass-through that looks configured. Refused here so a hand-edited file fails
+        # at load, not silently on live traffic.
+        first = self.stages[0]
+        if first.condition is StageCondition.ON_UNCERTAIN:
+            raise ValueError(
+                f"policy '{self.name}': the first stage ('{first.name}') is conditioned "
+                f"on_uncertain, but nothing can have made the request uncertain yet, so "
+                f"it would never run. A policy must start with a stage that always runs."
+            )
 
         seen: set[str] = set()
         for stage in self.stages:
@@ -255,6 +308,8 @@ class Policy:
     def to_file(self, path: str | Path, indent: int | None = 2) -> None:
         Path(path).write_text(self.to_json(indent=indent) + "\n", encoding="utf-8")
 
+    _KNOWN_KEYS = frozenset({"schema_version", "name", "stages"})
+
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "Policy":
         version = str(payload.get("schema_version", ""))
@@ -265,9 +320,13 @@ class Policy:
                 f"unsupported policy schema_version {version!r}; this package reads "
                 f"{POLICY_SCHEMA_VERSION!r}"
             )
+        _refuse_unknown_keys(payload, cls._KNOWN_KEYS, "policy")
         return cls(
             name=str(payload["name"]),
-            stages=tuple(Stage.from_dict(s) for s in payload["stages"]),
+            stages=tuple(
+                Stage.from_dict(s, where=f"stages[{i}]")
+                for i, s in enumerate(payload["stages"])
+            ),
             schema_version=version,
         )
 

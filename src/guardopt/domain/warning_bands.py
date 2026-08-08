@@ -165,6 +165,25 @@ def apply_warning_ladder(
     updated: list[Any] = []
 
     for selection in selections:
+        # A staged policy keeps the structure it was searched with, and is not given a
+        # back-derived warning band. The silent-band trick is lossless for a flat policy
+        # because a warning sits strictly inside the passing region and cannot change what
+        # fails. In a cascade a warning is not inert: it holds the gate open past an
+        # `allow_exit` and can trigger an `on_uncertain` stage, so the same band can change
+        # what the cascade blocks — which is exactly the "numbers describe a policy nobody
+        # built" failure this module exists to avoid. Re-simulating the banded candidate
+        # flat (the old behaviour) either tripped the blocking-unchanged assertion or
+        # silently dropped the stage structure; doing neither is the honest option.
+        if getattr(selection.policy, "policy", None) is not None:
+            updated.append(selection)
+            if selection.profile is not STRICT:
+                notes.append(
+                    f"{selection.profile.value}: no warning bands were added — this is a "
+                    f"staged policy, where a warning band can change what the cascade "
+                    f"blocks, so it is not derived after the fact."
+                )
+            continue
+
         banded = derive_warning_bands(
             selection.profile, selection.policy.candidate, by_profile, definitions
         )

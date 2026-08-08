@@ -12,10 +12,13 @@ same things by the same names, and a policy binding maps onto a reading with no 
 step to get wrong.
 """
 
+import asyncio
+import functools
 import inspect
 import re
 import time
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -60,17 +63,41 @@ class Guardrail(Protocol):
         ...
 
 
+#: Where synchronous guardrails run. A dedicated pool, NOT `asyncio.to_thread`, because
+#: to_thread borrows the loop's default executor — and `asyncio.run` joins the default
+#: executor's threads at shutdown. A timed-out call the router had abandoned would then
+#: stall `run_sync` at loop teardown for exactly the time the budget saved. This pool is
+#: never joined by loop teardown; construction spawns no threads until first use.
+_SYNC_GUARDRAIL_EXECUTOR = ThreadPoolExecutor(thread_name_prefix="guardopt-sync-guardrail")
+
+
 async def read_guardrail(
     guardrail: Guardrail, request: Mapping[str, Any]
 ) -> GuardrailReading:
     """Call a guardrail, awaiting it if it is async.
 
+    A synchronous `evaluate` runs in a worker thread rather than on the event loop.
+    Without that, a "parallel" stage of blocking guardrails executes serially while
+    blocking every other in-flight request — and the trace then records `max(timings)`
+    for concurrency that never happened. The router's own docstring calls those "latency
+    figures that were fiction"; this is what makes them fact.
+
+    One consequence, stated plainly: a sync call that never returns keeps its worker
+    thread until it does. The router's timeout budget bounds the *request*; nothing can
+    unblock a thread stuck in a socket read except the read returning.
+
     Transport failures are **not** caught here. A caller scoring a dataset decides whether
     one bad call ends the run or is recorded and skipped; swallowing it would silently turn
     an outage into a dataset full of unexplained gaps.
     """
-    result = guardrail.evaluate(request)
+    if inspect.iscoroutinefunction(guardrail.evaluate):
+        return await guardrail.evaluate(request)
+
+    result = await asyncio.get_running_loop().run_in_executor(
+        _SYNC_GUARDRAIL_EXECUTOR, functools.partial(guardrail.evaluate, request)
+    )
     if inspect.isawaitable(result):
+        # A sync callable that returned an awaitable — legal under the Protocol.
         result = await result
     return result
 

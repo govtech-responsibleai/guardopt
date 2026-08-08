@@ -69,6 +69,10 @@ class SearchMethod(str, Enum):
 
     EXHAUSTIVE = "exhaustive"
     BOUNDED_BEAM = "bounded_beam"
+    #: Flat policies plus cascades. The flat half may itself have been exhaustive or
+    #: bounded; STAGED records that the staged space was searched on top of it, so a staged
+    #: recommendation is never described by the flat search that only produced its baseline.
+    STAGED = "staged"
 
 
 class StageCondition(str, Enum):

@@ -156,6 +156,44 @@ def _simplicity_key(policy: Any) -> tuple:
     )
 
 
+def _collapse_pareto_identical(policies: Sequence[Any]) -> tuple[Any, ...]:
+    """Collapse policies indistinguishable to the frontier — same behaviour *and* same
+    latency — to the simplest of each group, before the quadratic frontier pass runs.
+
+    **This is what keeps "refuse rather than hang" true at selection, not only at
+    enumeration.** `pareto_frontier` tests every candidate against every other, so it is
+    O(m^2) in the number of evaluated policies — and the size guard permits tens of
+    thousands. But threshold candidates cluster into a handful of distinct behaviours by
+    design, so collapsing first shrinks m to that handful before the O(m^2) begins.
+
+    Safe because two policies with the same `outcome_signature` and the same
+    `estimated_latency_ms` share every coordinate `dominates` reads, so keeping one and
+    dropping the rest cannot change which policies the frontier keeps — only how many
+    identical copies it has to compare. Latency is part of the key precisely so a faster
+    cascade and a slower one with the same verdicts are *not* collapsed here; the frontier
+    still gets to prefer the faster one. Policies with no `outcome_signature` pass through
+    untouched, so callers supplying their own comparable objects are unaffected.
+    """
+    best: dict[tuple, Any] = {}
+    order: list[tuple] = []
+    passthrough: list[Any] = []
+
+    for policy in policies:
+        signature = getattr(policy, "outcome_signature", None)
+        if not signature:
+            passthrough.append(policy)
+            continue
+        key = (signature, getattr(policy, "estimated_latency_ms", None))
+        incumbent = best.get(key)
+        if incumbent is None:
+            best[key] = policy
+            order.append(key)
+        elif _simplicity_key(policy) < _simplicity_key(incumbent):
+            best[key] = policy
+
+    return tuple(passthrough) + tuple(best[k] for k in order)
+
+
 @dataclass(frozen=True, slots=True)
 class ProfileSelection:
     profile: RecommendationProfile
@@ -169,6 +207,11 @@ class SelectionResult:
     selections: tuple[ProfileSelection, ...]
     warnings: tuple[str, ...]
     pareto_candidate_count: int
+
+    #: The deduplicated Pareto frontier the profiles were chosen from. Carried out so a
+    #: caller can re-rank the same defensible set — bootstrap stability resamples over
+    #: exactly these rivals, and constraints filter them — without re-running the search.
+    frontier: tuple[Any, ...] = ()
 
 
 def _strongest_fit(policy: Any, profiles: Sequence[RecommendationProfile], frontier) -> RecommendationProfile:
@@ -228,9 +271,14 @@ def select_profiles(policies: Sequence[Any]) -> SelectionResult:
             f"recall could not be measured on this dataset."
         )
 
-    # Collapse behaviourally identical policies BEFORE the frontier, so "three distinct
-    # recommendations" means three that actually behave differently.
-    frontier = deduplicate_by_behaviour(pareto_frontier(policies))
+    # Collapse Pareto-identical policies (same behaviour AND same latency) BEFORE the
+    # O(m^2) frontier, so it runs over the handful of distinct policies rather than the tens
+    # of thousands the size guard permits. Then take the frontier, then collapse any
+    # behaviourally identical survivors that differed only in latency, so "three
+    # recommendations" still means three that actually behave differently.
+    frontier = deduplicate_by_behaviour(
+        pareto_frontier(_collapse_pareto_identical(policies))
+    )
     if not frontier:
         warnings.append(
             "No recommendation could be made: precision or recall could not be measured "
@@ -303,4 +351,5 @@ def select_profiles(policies: Sequence[Any]) -> SelectionResult:
         selections=selections,
         warnings=tuple(warnings),
         pareto_candidate_count=len(frontier),
+        frontier=tuple(frontier),
     )
