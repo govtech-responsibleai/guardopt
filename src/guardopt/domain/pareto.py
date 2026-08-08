@@ -105,8 +105,14 @@ def dominates(a: PrecisionRecallPoint, b: PrecisionRecallPoint) -> bool:
     if not (is_measurable(a) and is_measurable(b)):
         return False
 
-    at_least_as_good = a.precision >= b.precision and a.recall >= b.recall
-    strictly_better = a.precision > b.precision or a.recall > b.recall
+    a_precision, a_recall = a.precision, a.recall
+    b_precision, b_recall = b.precision, b.recall
+    # Narrowing only; is_measurable above already guarantees all four.
+    assert a_precision is not None and a_recall is not None
+    assert b_precision is not None and b_recall is not None
+
+    at_least_as_good = a_precision >= b_precision and a_recall >= b_recall
+    strictly_better = a_precision > b_precision or a_recall > b_recall
 
     latency_a, latency_b = _latency_of(a), _latency_of(b)
     if latency_a is not None and latency_b is not None:

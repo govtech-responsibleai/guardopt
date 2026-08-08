@@ -146,7 +146,7 @@ def test_the_optimise_module_and_the_whole_domain_reach_no_sentinel_code():
             if "sentinel" in module:
                 offenders.append(f"{path}: {module}")
 
-    assert not offenders, f"Sentinel reached from the pure core:\n" + "\n".join(offenders)
+    assert not offenders, "Sentinel reached from the pure core:\n" + "\n".join(offenders)
 
 
 def test_recommend_policies_is_built_on_optimise_rather_than_beside_it():

@@ -105,7 +105,9 @@ def test_a_wider_beam_evaluates_more_and_never_does_worse():
     narrow, _ = beam_search(_spread_request(4, beam_width=2, max_iterations=8))
     wide, _ = beam_search(_spread_request(4, beam_width=8, max_iterations=8))
 
-    best = lambda rs: max((r.f1 for r in rs if r.f1 is not None), default=0.0)  # noqa: E731
+    def best(rs):
+        return max((r.f1 for r in rs if r.f1 is not None), default=0.0)
+
     assert len(wide) >= len(narrow)
     assert best(wide) >= best(narrow)
 
@@ -188,7 +190,9 @@ def test_beam_search_finds_something_close_to_the_exhaustive_optimum():
     exact, _ = exhaustive_search(request)
     approx, _ = beam_search(request)
 
-    best = lambda rs: max((r.f1 for r in rs if r.f1 is not None), default=0.0)  # noqa: E731
+    def best(rs):
+        return max((r.f1 for r in rs if r.f1 is not None), default=0.0)
+
     assert best(approx) >= best(exact) * 0.95
 
 

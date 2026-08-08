@@ -16,8 +16,8 @@ import json
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
-from typing import Any, Callable
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from guardopt.domain.fanout import signal_name
 from guardopt.runtime.protocol import GuardrailReading

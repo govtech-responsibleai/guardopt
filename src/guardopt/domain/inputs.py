@@ -286,17 +286,17 @@ class OptimiserRequest(BaseModel):
             seen_case_ids.add(case.test_case_id)
 
             for result in case.guardrail_results:
-                guardrail = index.get(result.guardrail_name)
-                if guardrail is None:
+                definition = index.get(result.guardrail_name)
+                if definition is None:
                     raise ValueError(
                         f"test case '{case.test_case_id}' references unknown guardrail "
                         f"'{result.guardrail_name}'"
                     )
-                if result.score is not None and not guardrail.contains_score(result.score):
+                if result.score is not None and not definition.contains_score(result.score):
                     raise ValueError(
                         f"test case '{case.test_case_id}' reports score {result.score} "
-                        f"for guardrail '{guardrail.name}', outside the range "
-                        f"[{guardrail.minimum_score}, {guardrail.maximum_score}]"
+                        f"for guardrail '{definition.name}', outside the range "
+                        f"[{definition.minimum_score}, {definition.maximum_score}]"
                     )
 
         return self

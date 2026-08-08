@@ -64,16 +64,16 @@ expressed at all (the strict `warning < failed` rule suggests not, but that is i
 from one error message, not tested).
 """
 
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 #: One failing guardrail fails the whole policy.
-OVERALL_CRITERION = "fail_if_any_fails"
+OVERALL_CRITERION: Final[Literal["fail_if_any_fails"]] = "fail_if_any_fails"
 
 #: A guardrail that could not run warns rather than passing. "We could not check" and
 #: "we checked and it is clean" must never collapse into the same outcome.
-ERROR_CRITERION = "warn_on_error"
+ERROR_CRITERION: Final[Literal["warn_on_error"]] = "warn_on_error"
 
 #: Assumption A2 — used when the caller supplies no version. The real API treats version
 #: as first-class: it is set at create time, named again to deploy, and named again by

@@ -215,7 +215,7 @@ def test_no_code_path_to_the_deploy_endpoint_exists_anywhere_in_the_package():
 
     assert not offenders, (
         "a deploy path appeared in the guardrails package; adding one is a separate "
-        f"change requiring explicit approval:\n" + "\n".join(offenders)
+        "change requiring explicit approval:\n" + "\n".join(offenders)
     )
 
 

@@ -7,7 +7,6 @@ transport's diagnostics survive sanitisation without the credential ever escapin
 """
 
 import io
-import json
 import urllib.error
 
 import pytest

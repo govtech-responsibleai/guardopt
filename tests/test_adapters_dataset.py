@@ -8,14 +8,13 @@ job is naming the line that went wrong in one.
 """
 
 import http.client
-import io
 import json
 
 import pytest
 
+from guardopt.domain.types import ExpectedAction
 from guardopt.runtime.adapters import HttpJsonGuardrail
 from guardopt.runtime.dataset import load_jsonl
-from guardopt.domain.types import ExpectedAction
 
 pytestmark = pytest.mark.unit
 

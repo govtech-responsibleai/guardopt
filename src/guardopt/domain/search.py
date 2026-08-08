@@ -15,7 +15,7 @@ its name-sorted entries).
 """
 
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from itertools import product
 
 from guardopt.domain.candidates import (

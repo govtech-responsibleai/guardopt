@@ -9,6 +9,12 @@ refuses and the caller must use the bounded method (slice 13).
 
 import pytest
 
+from guardopt.domain.candidates import (
+    behaviourally_distinct_pairs,
+    generate_failed_only_pairs,
+    generate_threshold_pairs,
+    generate_threshold_values,
+)
 from guardopt.domain.inputs import (
     GuardrailDefinition,
     GuardrailTestResult,
@@ -23,12 +29,6 @@ from guardopt.domain.search import (
     enumerate_policies,
     estimate_policy_space_size,
     exhaustive_search,
-)
-from guardopt.domain.candidates import (
-    behaviourally_distinct_pairs,
-    generate_failed_only_pairs,
-    generate_threshold_pairs,
-    generate_threshold_values,
 )
 from guardopt.domain.simulation import GuardrailThresholds, PolicyCandidate
 from guardopt.domain.types import ExpectedAction, ScoreDirection, SearchMethod

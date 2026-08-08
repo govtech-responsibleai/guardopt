@@ -256,7 +256,9 @@ def test_the_noisy_guardrail_carries_almost_no_signal():
     request = generator.generate_request(seed=42)
     unsafe = _scores(request, generator.NOISY, BLOCK)
     safe = _scores(request, generator.NOISY, ALLOW)
-    mean = lambda xs: sum(xs) / len(xs)  # noqa: E731
+    def mean(xs):
+        return sum(xs) / len(xs)
+
     assert abs(mean(unsafe) - mean(safe)) < 0.15
 
 

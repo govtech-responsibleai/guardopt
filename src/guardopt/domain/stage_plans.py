@@ -22,12 +22,12 @@ a range of shapes — if those ever disagree, the guard is protecting against th
 """
 
 from collections.abc import Iterator, Sequence
-from functools import lru_cache
+from functools import cache
 from itertools import permutations
 
 __all__ = [
-    "StagePlanSpaceTooLargeError",
     "StagePlan",
+    "StagePlanSpaceTooLargeError",
     "check_combined_space",
     "count_compositions",
     "count_stage_plans",
@@ -56,7 +56,7 @@ class StagePlanSpaceTooLargeError(RuntimeError):
         )
 
 
-@lru_cache(maxsize=None)
+@cache
 def count_compositions(length: int, max_part: int) -> int:
     """How many ways an ordering of `length` items cuts into stages of at most `max_part`.
 

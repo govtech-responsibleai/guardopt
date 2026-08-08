@@ -45,7 +45,7 @@ __all__ = ["LabelledRecord", "materialise", "materialise_sync"]
 class LabelledRecord:
     """One piece of traffic and the verdict a reviewer gave it."""
 
-    __slots__ = ("record_id", "request", "expected_action")
+    __slots__ = ("expected_action", "record_id", "request")
 
     def __init__(
         self,

@@ -208,7 +208,29 @@ class GuardrailRouter:
             on_decision=on_decision,
         )
 
+    def reload_policy(self, policy: Policy) -> None:
+        """Swap the enforced policy, validating first and atomically.
+
+        Validation happens on a probe construction, so a bad policy is refused with the
+        same construction-time errors a fresh router would raise — and the running
+        router keeps its current policy untouched. In-flight requests finish under the
+        policy they started with; `run()` reads the policy once at entry for exactly
+        this reason. Every decision names the policy that made it, so a rotation is
+        visible in the audit trail rather than silent.
+        """
+        GuardrailRouter(
+            guards=self.guards,
+            policy=policy,
+            definitions=self.definitions,
+            timeout_ms=self.timeout_ms,
+        )
+        self.policy = policy
+
     async def run(self, request: Mapping[str, Any]) -> RoutedDecision:
+        # Read once: a concurrent `reload_policy` must never leave one request walking
+        # the old stages while its decision is stamped with the new policy's name.
+        policy = self.policy
+
         readings: list[GuardrailReading] = []
         outcomes: list[tuple[str, GuardrailOutcome]] = []
         stages_run: list[str] = []
@@ -222,7 +244,7 @@ class GuardrailRouter:
         final: PolicyOutcome | None = None
         reason = ""
 
-        for index, stage in enumerate(self.policy.stages):
+        for index, stage in enumerate(policy.stages):
             if stage.condition is StageCondition.ON_UNCERTAIN and not uncertain:
                 stages_skipped.append(stage.name)
                 continue
@@ -274,7 +296,7 @@ class GuardrailRouter:
 
             if verdict is PolicyOutcome.FAIL:
                 final, reason = PolicyOutcome.FAIL, "blocked"
-                stages_skipped.extend(s.name for s in self.policy.stages[index + 1 :])
+                stages_skipped.extend(s.name for s in policy.stages[index + 1 :])
                 break
 
             if verdict is PolicyOutcome.WARNING:
@@ -285,7 +307,7 @@ class GuardrailRouter:
             if stage.allow_exit and not uncertain:
                 final, reason = PolicyOutcome.PASS, "cleared early"
                 exited_early = True
-                stages_skipped.extend(s.name for s in self.policy.stages[index + 1 :])
+                stages_skipped.extend(s.name for s in policy.stages[index + 1 :])
                 break
 
         if final is None:
@@ -305,8 +327,8 @@ class GuardrailRouter:
                 cost=cost,
                 exited_early=exited_early,
             ),
-            policy_name=self.policy.name,
-            policy_schema_version=self.policy.schema_version,
+            policy_name=policy.name,
+            policy_schema_version=policy.schema_version,
             decided_at=time.time(),
         )
         if self.on_decision is not None:
@@ -341,7 +363,7 @@ class GuardrailRouter:
                 return await read_guardrail(guard, request)
 
             task = asyncio.ensure_future(read_guardrail(guard, request))
-            done, pending = await asyncio.wait({task}, timeout=self.timeout_ms / 1000.0)
+            _, pending = await asyncio.wait({task}, timeout=self.timeout_ms / 1000.0)
             if pending:
                 task.cancel()
                 task.add_done_callback(_discard_abandoned_result)

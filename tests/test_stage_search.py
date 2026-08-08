@@ -274,7 +274,7 @@ def test_optimise_runs_end_to_end_with_stage_search_on():
 def test_staged_diagnostics_describe_the_staged_search_not_the_flat_one():
     """A staged recommendation must not be described by the flat search that only produced
     its baseline: the reported method is STAGED and the counts include the cascade space."""
-    flat, flat_diagnostics = search_policies(_request(search_stages=False))
+    _, flat_diagnostics = search_policies(_request(search_stages=False))
     _, staged_diagnostics = search_policies(_request(search_stages=True))
 
     assert staged_diagnostics.method is SearchMethod.STAGED

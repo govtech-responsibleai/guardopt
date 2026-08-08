@@ -106,6 +106,7 @@ router = GuardrailRouter(
     guards=[local, remote],
     policy=Policy.from_file("policy.json"),
     definitions=definitions,
+    timeout_ms=500.0,          # optional per-call budget
 )
 
 decision = router.run_sync({"text": "..."})
@@ -116,7 +117,28 @@ decision.trace            # what ran, what did not, what it cost
 ```
 
 The router validates at construction, not on the first request. A router that starts and
-then fails on live traffic has already failed the requests it existed to protect.
+then fails on live traffic has already failed the requests it existed to protect. That
+validation covers more than existence: a policy whose `score_direction` disagrees with
+the definition's is refused — running with either guess silently inverts every verdict
+that guardrail produces — and every threshold is range-checked with the same validator
+the simulator uses.
+
+### Nothing takes the request down
+
+A guardrail that **raises** becomes an error reading: the check could not run, so it is
+never a pass and never permits an early exit — the same fail-safe path an error response
+takes. In a parallel stage, one raising guardrail does not discard its siblings'
+readings.
+
+A guardrail that **hangs** is cut off by `timeout_ms`, when set. A timed-out call is
+abandoned (its thread runs to completion in the background, its result discarded) and
+recorded as an error — bounding the worst-case latency of a live request whatever a
+guardrail implementation does. The runtime counterpart of "refuse oversized searches
+rather than hang".
+
+Parallel stages genuinely parallelise: synchronous guardrails run on worker threads, so
+a stage's latency really is its slowest call, and the trace's timing is fact rather than
+accounting.
 
 ### The trace
 
@@ -127,10 +149,67 @@ decision.trace.guardrails_run
 decision.trace.latency_ms
 decision.trace.cost
 decision.trace.exited_early
+
+decision.policy_name             # which policy decided this
+decision.policy_schema_version
+decision.decided_at              # and when
 ```
 
 This is what makes a cascade auditable. "Why was this blocked?" and "why did this take
-240ms?" get per-request answers, not just aggregate ones.
+240ms?" get per-request answers, not just aggregate ones — and once policies rotate,
+"why was this blocked last Tuesday?" still names the policy that decided it.
+
+## Watching for drift
+
+A policy is a measurement with a date on it, not a permanent fact. The router takes an
+`on_decision` hook, and the monitor compares live outcome rates against the simulation
+the policy was accepted on:
+
+```python
+from guardopt.runtime.monitor import DecisionAggregator, simulated_shares
+
+aggregator = DecisionAggregator()
+router = GuardrailRouter(guards, policy, definitions, on_decision=aggregator.record)
+
+# ... traffic ...
+
+report = aggregator.compare_to(simulated_shares(recommendation.evaluated))
+print(report.sentence())
+aggregator.errored_guardrails()   # the outage signal: checks that did not happen
+```
+
+A small sample never reports drift — below the minimum it says "too few decisions to
+conclude anything", explicitly, because no conclusion is not the same as no drift.
+
+## Rolling a policy forward
+
+**Shadow mode** measures a candidate policy on live traffic without enforcing it. The
+incumbent's decision is always the one returned; disagreements are counted by outcome
+pair and handed to a callback — each one is a labelled-data candidate:
+
+```python
+from guardopt.runtime.shadow import ShadowRouter
+
+shadow = ShadowRouter(primary=incumbent, candidate=proposed,
+                      on_disagreement=log_for_review)
+decision = shadow.run_sync({"text": "..."})   # always the incumbent's
+print(shadow.comparison().sentence())
+```
+
+The candidate can never fail the request, and never changes the enforced outcome. Its
+guardrail calls are still real calls — shadowing doubles the per-request spend, which is
+the honest price of the answer.
+
+**Hot reload** swaps the enforced policy atomically, validating first:
+
+```python
+router.reload_policy(Policy.from_file("policy-v2.json"))
+```
+
+A bad policy is refused with the same construction-time errors a fresh router would
+raise, and the running policy stays untouched. In-flight requests finish under the
+policy they started with, and every decision names its policy, so the rotation is
+visible in the audit trail.
 
 ## Cascades
 

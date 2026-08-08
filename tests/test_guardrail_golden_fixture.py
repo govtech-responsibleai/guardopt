@@ -19,6 +19,7 @@ from guardopt.domain.metrics import (
 )
 from guardopt.domain.metrics_intervention import build_intervention_report
 from guardopt.domain.simulation import evaluate_policy
+from guardopt.domain.types import ExpectedAction, GuardrailOutcome, PolicyOutcome
 from guardopt.fixtures import golden
 from guardopt.fixtures.golden import (
     BROAD,
@@ -29,7 +30,6 @@ from guardopt.fixtures.golden import (
     PRECISE,
     SPECIALIST,
 )
-from guardopt.domain.types import ExpectedAction, GuardrailOutcome, PolicyOutcome
 
 pytestmark = pytest.mark.unit
 

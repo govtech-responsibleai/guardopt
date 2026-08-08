@@ -138,8 +138,8 @@ class ScoreMatrix:
                     f"{resolved.name}: column{'s' if len(unmapped) > 1 else ''} "
                     + ", ".join(repr(c) for c in unmapped)
                     + " match no declared guardrail. Either declare the guardrail or "
-                    f"remove the column — silently ignoring it would drop data you "
-                    f"think is being used."
+                    "remove the column — silently ignoring it would drop data you "
+                    "think is being used."
                 )
 
             absent = sorted(set(by_name) - set(columns))

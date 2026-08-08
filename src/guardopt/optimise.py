@@ -46,7 +46,11 @@ from guardopt.domain.matrix import ScoreMatrix
 from guardopt.domain.metrics import (
     BinaryOutcomeReport,
     build_binary_report,
+)
+from guardopt.domain.metrics import (
     precision as precision_of,
+)
+from guardopt.domain.metrics import (
     recall as recall_of,
 )
 from guardopt.domain.policy import Policy

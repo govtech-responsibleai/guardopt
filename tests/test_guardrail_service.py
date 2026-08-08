@@ -190,7 +190,7 @@ class TestTheHarderDataset:
 
 class TestNothingIsDeployed:
     def test_the_service_exposes_no_way_to_deploy_or_write(self):
-        import guardopt.service as service
+        from guardopt import service
 
         for name in dir(service):
             assert not any(

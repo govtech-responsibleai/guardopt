@@ -19,9 +19,9 @@ the same policy, the profile that wants it *most strongly* keeps it and the othe
 to its next best — and says so.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from guardopt.domain.pareto import pareto_frontier, partition_by_measurability
 from guardopt.domain.types import RecommendationProfile
@@ -35,12 +35,12 @@ PROFILE_ORDER: tuple[RecommendationProfile, ...] = (MINIMAL, BALANCED, STRICT)
 _PROFILE_RANK = {profile: index for index, profile in enumerate(PROFILE_ORDER)}
 
 
-def _asc(value: float | int | None) -> tuple[int, float]:
+def _asc(value: float | None) -> tuple[int, float]:
     """Smaller is better; `None` sorts last."""
     return (1, 0.0) if value is None else (0, float(value))
 
 
-def _desc(value: float | int | None) -> tuple[int, float]:
+def _desc(value: float | None) -> tuple[int, float]:
     """Larger is better; `None` sorts last."""
     return (1, 0.0) if value is None else (0, -float(value))
 

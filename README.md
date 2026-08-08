@@ -39,7 +39,15 @@ Whether that is worth it depends on what a mistake costs you — which is exactl
 `guardopt` does not decide it for you.
 
 Each option comes with a confusion matrix, the metrics behind it, the case IDs in every
-cell, and a written explanation of what it would have done to your data.
+cell, a written explanation of what it would have done to your data — with a 95%
+confidence interval on every headline rate — and the policy itself as a committable,
+reviewable artifact the runtime enforces.
+
+Scores already in a spreadsheet? Skip Python entirely:
+
+```bash
+guardopt optimise scores.csv --guardrails guardrails.json --out report.md
+```
 
 ## Install
 
@@ -113,7 +121,18 @@ Most of these exist because the opposite went wrong somewhere first.
 - **Undefined is `None`, never `0.0`.** A policy that blocked nothing has no precision;
   reporting zero would claim it was wrong every time it blocked.
 - **It says what it does not know.** Every explanation carries limitations, and the
-  simulation caveat is always first.
+  simulation caveat is always first. Every rate carries its Wilson confidence interval,
+  and two opt-in checks measure the rest: a holdout split reports what the thresholds do
+  on cases the search never saw, and a bootstrap reports how often each pick survives a
+  resampled dataset.
+- **A requirement is not a preference.** `optimise(constraints=Constraints(min_recall=0.98))`
+  selects only from policies that clear the bar — and when nothing does, says so loudly
+  instead of quietly relaxing a safety bar.
+- **The runtime fails closed.** A guardrail that raises, hangs past its `timeout_ms`
+  budget, or returns junk becomes an error reading: never a pass, never permission for a
+  cascade to exit early. Decisions carry the policy name and timestamp that made them,
+  a drift monitor compares live rates against the simulation, and shadow mode measures a
+  candidate policy on live traffic without enforcing it.
 
 ## Documentation
 
@@ -121,6 +140,7 @@ Most of these exist because the opposite went wrong somewhere first.
 
 - [Concepts](docs/concepts.md) — guardrails, thresholds, the three bands, policies, profiles
 - [Optimising](docs/optimising.md) — the quickstart, preparing data, reading results
+- [Constraints](docs/constraints.md) — stating requirements, and ranking what qualifies
 - [Runtime](docs/runtime.md) — calling guardrails, and enforcing a policy or a cascade
 - [Policy schema](docs/policy-schema.md) — the portable artifact, field by field
 - [Methodology](docs/methodology.md) — how the search works, and what it does not prove
@@ -157,8 +177,11 @@ The gap this fills:
 
 ```bash
 pip install -e ".[dev]"
-pytest
+make check        # ruff + mypy + pytest — what CI used to be
 ```
+
+There is no CI runner; `make check` before pushing is the contract. The docs site
+deploys manually with `make docs-deploy`.
 
 ## Licence
 
