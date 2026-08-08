@@ -188,6 +188,8 @@ Limitations
 - These numbers come from a simulation over 24 labelled test cases. They describe what
   this policy would have done on that dataset. They are not a guarantee of how it will
   behave in production.
+- With 95% confidence: recall is between 40% and 89% (measured on 10 unsafe cases), and
+  precision is between 65% and 100% (measured on 7 blocked requests).
 ```
 
 `limitations` is always non-empty, and the simulation caveat is always first. If you show
@@ -212,13 +214,109 @@ minimal: no warning bands — the next stricter profile does not block any of it
 ### How it searched
 
 ```python
-result.search_method     # EXHAUSTIVE | BOUNDED_BEAM
+result.search_method     # EXHAUSTIVE | BOUNDED_BEAM | STAGED
 result.diagnostics
 ```
 
 `EXHAUSTIVE` means every candidate policy was evaluated and the answer is optimal for your
 data. `BOUNDED_BEAM` means the space was too large, and this is **the best found, not a
-proven optimum**. Do not report a bounded result as the best possible one.
+proven optimum**. Do not report a bounded result as the best possible one. `STAGED` means
+cascades were searched alongside flat policies (`OptimiserConfig(search_stages=True)`),
+and the diagnostics count both spaces.
+
+### The committable artifact
+
+Every recommendation carries itself as a `Policy` — the reviewable, versioned file the
+runtime enforces:
+
+```python
+recommendation.policy.to_file("policy.json")
+```
+
+Search it, commit it, enforce it. See [Policy schema](policy-schema.md) and
+[Runtime](runtime.md).
+
+## Trusting the numbers
+
+Three opt-in checks turn the standing caveat — these numbers describe your dataset, not
+production — into measured statements.
+
+**Confidence intervals are always on.** Every recommendation's limitations include the
+95% Wilson interval around recall and precision:
+
+```text
+With 95% confidence: recall is between 62% and 95% (measured on 12 unsafe cases), and
+precision is between 55% and 91% (measured on 11 blocked requests).
+```
+
+A percentage over a dozen cases reads as more precise than it is; the interval is its
+honest width.
+
+**A holdout split measures the optimism.** Thresholds are placed using this dataset's own
+score boundaries and the winner is the best of thousands of tries on the same cases — so
+the in-sample numbers are biased upward. `holdout_fraction` searches on one split and
+reports both numbers:
+
+```python
+OptimiserConfig(holdout_fraction=0.3, holdout_seed=0)
+```
+
+```text
+Holdout check: on 30 cases held out of the search, recall is 80% (train: 90%) and
+precision is 78% (train: 82%).
+```
+
+The split is stratified and deterministic, and it is **refused, with the reason named**,
+when the holdout would carry too few unsafe cases to say anything.
+
+**A bootstrap measures the stability of the choice itself.** Profile selection ranks
+policies on F-score differences that can sit inside sampling noise.
+`bootstrap_rounds` resamples the dataset and reports how often each pick would still win:
+
+```python
+OptimiserConfig(bootstrap_rounds=100, bootstrap_seed=0)
+```
+
+```text
+Bootstrap stability over 100 dataset resamples: the minimal pick won its objective in
+87 of 100 resamples; the balanced pick won its objective in 74 of 100 resamples; ...
+```
+
+A pick that wins by one case is a different kind of recommendation from one that survives
+every resample — and now the report says which kind you have.
+
+## Requirements, not preferences
+
+When "recall must clear 98%" is a requirement rather than a trade to weigh, pass
+[constraints](constraints.md):
+
+```python
+from guardopt import Constraints
+
+result = optimise(request, constraints=Constraints(min_recall=0.98))
+```
+
+## Scores in a spreadsheet
+
+The common case — scores already sitting in a CSV — loads directly:
+
+```python
+from guardopt import ScoreMatrix
+
+matrix = ScoreMatrix.from_csv("scores.csv", guardrails)
+result = optimise(matrix)
+```
+
+One row per case, one column per guardrail; empty cells are missing results (never a
+pass), `error: reason` cells are recorded failures, and unrecognised columns are refused
+rather than ignored. Or skip Python entirely:
+
+```bash
+guardopt optimise scores.csv --guardrails guardrails.json --out report.md
+```
+
+which writes the whole result — options side by side, every confusion-matrix cell with
+its case IDs, limitations first — as one Markdown file.
 
 ## Configuration
 

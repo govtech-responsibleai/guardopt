@@ -42,6 +42,7 @@ nav:
   - Home: index.md
   - Concepts: concepts.md
   - Optimising: optimising.md
+  - Constraints: constraints.md
   - Runtime: runtime.md
   - Policy schema: policy-schema.md
   - Methodology: methodology.md

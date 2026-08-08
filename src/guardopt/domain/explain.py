@@ -30,10 +30,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from guardopt.domain.inputs import GuardrailDefinition
+from guardopt.domain.metrics import precision_interval, recall_interval
 from guardopt.domain.types import (
     RecommendationProfile,
     ScoreDirection,
     SearchMethod,
+    StageCondition,
 )
 
 MINIMAL = RecommendationProfile.MINIMAL
@@ -237,6 +239,31 @@ def _flagging_sentence(policy: Any) -> str | None:
     )
 
 
+def _one_guardrail_line(
+    name: str, failed: float, warning: float | None, definitions: Mapping[str, GuardrailDefinition]
+) -> str:
+    higher = definitions[name].score_direction is ScoreDirection.HIGHER_IS_RISKIER
+    side = "above" if higher else "below"
+    line = f"{name} blocks at {format_threshold(failed)} or {side}"
+    if warning is not None:
+        line += f", and flags at {format_threshold(warning)} or {side}"
+    return line + "."
+
+
+def _stage_descriptor(stage: Any, is_last: bool) -> str:
+    """What makes this stage run, and what it may do — in words, not field names."""
+    bits: list[str] = []
+    if stage.condition is StageCondition.ON_UNCERTAIN:
+        bits.append("runs only when an earlier stage was uncertain")
+    else:
+        bits.append("always runs")
+    if stage.allow_exit and not is_last:
+        bits.append("may let the request exit early")
+    if stage.resolves_uncertainty:
+        bits.append("settles earlier uncertainty when it comes back clean")
+    return ", ".join(bits)
+
+
 def _guardrail_lines(
     policy: Any, definitions: Mapping[str, GuardrailDefinition]
 ) -> tuple[str, ...]:
@@ -245,16 +272,29 @@ def _guardrail_lines(
     The direction word is the whole point: `blocks at 0.2 or below` and `blocks at 0.2
     or above` are opposite policies, and a reader cannot tell which they have without
     being told.
+
+    **A staged policy is described stage by stage.** The order, the conditions and the
+    early exits ARE the policy — a flat list of thresholds describes a different policy
+    that happens to share its numbers, and this text is what a reviewer signs off on.
     """
-    lines: list[str] = []
-    for name, thresholds in policy.candidate.entries:
-        higher = definitions[name].score_direction is ScoreDirection.HIGHER_IS_RISKIER
-        side = "above" if higher else "below"
-        line = f"{name} blocks at {format_threshold(thresholds.failed)} or {side}"
-        if thresholds.warning is not None:
-            line += f", and flags at {format_threshold(thresholds.warning)} or {side}"
-        lines.append(line + ".")
-    return tuple(lines)
+    staged = getattr(policy, "policy", None)
+    if staged is not None and not staged.is_flat:
+        lines: list[str] = []
+        for index, stage in enumerate(staged.stages, start=1):
+            descriptor = _stage_descriptor(stage, is_last=index == len(staged.stages))
+            for binding in stage.guardrails:
+                lines.append(
+                    f"stage {index} ({descriptor}): "
+                    + _one_guardrail_line(
+                        binding.name, binding.failed, binding.warning, definitions
+                    )
+                )
+        return tuple(lines)
+
+    return tuple(
+        _one_guardrail_line(name, thresholds.failed, thresholds.warning, definitions)
+        for name, thresholds in policy.candidate.entries
+    )
 
 
 def _operations_sentence(policy: Any) -> str | None:
@@ -263,6 +303,20 @@ def _operations_sentence(policy: Any) -> str | None:
 
     count = policy.enabled_count
     noun = "guardrail" if count == 1 else "guardrails"
+
+    # A staged policy does not run its guardrails in parallel — it runs stages in order and
+    # stops as soon as one settles the request, so the latency is a per-request average over
+    # the routes taken, not the slowest of a single parallel fan-out. Describing it as
+    # parallel would misstate both the mechanism and why the number is what it is.
+    staged = getattr(policy, "policy", None)
+    if staged is not None and not staged.is_flat:
+        stages = len(staged.stages)
+        return (
+            f"Runs up to {count} {noun} across {stages} stages, stopping early when a stage "
+            f"settles the request — so it adds about {round(policy.estimated_latency_ms)} ms "
+            f"per request on average, varying with how far each request travels."
+        )
+
     if count == 1:
         return (
             f"Runs {count} {noun}, adding about "
@@ -272,6 +326,51 @@ def _operations_sentence(policy: Any) -> str | None:
         f"Runs {count} {noun}. They execute in parallel, so the added latency is the "
         f"slowest one — about {round(policy.estimated_latency_ms)} ms per request."
     )
+
+
+def _interval_pct(value: float) -> str:
+    """A CI bound as a plain rounded percentage.
+
+    Deliberately NOT `format_percentage`: that function reserves the extremes for exact
+    values because a point estimate must never overstate. An interval bound is already a
+    statement of uncertainty — a Wilson upper bound of 100% at 3/3 is exactly right, and
+    writing it as `>99%` would misquote the interval.
+    """
+    return f"{round(value * 100)}%"
+
+
+def _confidence_sentence(policy: Any) -> str | None:
+    """The Wilson intervals around recall and precision, in one limitation line.
+
+    This turns the fewer-than-10-unsafe-cases prose heuristic into a measured statement,
+    and it covers the side that heuristic missed: a policy that blocks 2 cases, both
+    correctly, prints '(100%)' precision — this line is where '2 blocked requests' gets
+    its honest width. `None` when neither metric is measurable, since an interval around
+    nothing is nothing.
+    """
+    cm = policy.confusion_matrix
+    parts: list[str] = []
+
+    recall_ci = recall_interval(cm)
+    if recall_ci is not None:
+        low, high = recall_ci
+        parts.append(
+            f"recall is between {_interval_pct(low)} and {_interval_pct(high)} "
+            f"(measured on {_cases(cm.actual_positives).replace('test case', 'unsafe case')})"
+        )
+
+    precision_ci = precision_interval(cm)
+    if precision_ci is not None:
+        low, high = precision_ci
+        parts.append(
+            f"precision is between {_interval_pct(low)} and {_interval_pct(high)} "
+            f"(measured on {cm.predicted_positives} blocked "
+            f"{'request' if cm.predicted_positives == 1 else 'requests'})"
+        )
+
+    if not parts:
+        return None
+    return f"With 95% confidence: {', and '.join(parts)}."
 
 
 def _limitations(
@@ -295,12 +394,37 @@ def _limitations(
         f"a guarantee of how it will behave in production."
     ]
 
+    confidence = _confidence_sentence(policy)
+    if confidence is not None:
+        limitations.append(confidence)
+
+    staged = getattr(policy, "policy", None)
+    if staged is not None and not staged.is_flat:
+        limitations.append(
+            "This is a staged policy: each request pays only for the stages it reaches, "
+            "so per-request latency varies with the route taken. The latency shown is "
+            "the average over this dataset, not a fixed cost."
+        )
+
     if diagnostics is not None and diagnostics.method is SearchMethod.BOUNDED_BEAM:
         limitations.append(
             f"The policy space held about {diagnostics.estimated_space_size} policies, "
             f"too many to check every one, so a bounded search evaluated "
             f"{diagnostics.evaluated_candidate_count} of them. This is the best policy "
             f"that search found — not a proven optimum."
+        )
+
+    if diagnostics is not None and diagnostics.method is SearchMethod.STAGED:
+        limitations.append(
+            f"The search covered flat policies and staged cascades together — about "
+            f"{diagnostics.estimated_space_size} policies in all, of which "
+            f"{diagnostics.evaluated_candidate_count} were evaluated."
+        )
+
+    if diagnostics is not None and not diagnostics.converged:
+        limitations.append(
+            "The bounded search ran out of iterations while still finding improvements, "
+            "so a longer search could find better policies than these."
         )
 
     if intervention.excluded_case_count:

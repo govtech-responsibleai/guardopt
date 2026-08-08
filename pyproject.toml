@@ -69,8 +69,16 @@ Homepage = "https://github.com/govtech-responsibleai/guardrails-routing"
 Repository = "https://github.com/govtech-responsibleai/guardrails-routing"
 Issues = "https://github.com/govtech-responsibleai/guardrails-routing/issues"
 
+[project.scripts]
+guardopt = "guardopt.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# The PEP 561 marker. Without it, the "Typing :: Typed" classifier above is a false
+# claim: mypy and pyright treat the package as untyped and discard every annotation.
+guardopt = ["py.typed"]
 
 [tool.pytest.ini_options]
 # `src` on the path means the suite runs from a clean checkout with no install step,

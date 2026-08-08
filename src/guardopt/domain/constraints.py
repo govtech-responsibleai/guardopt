@@ -157,13 +157,22 @@ def objective(policy: Any, weights: ObjectiveWeights) -> float:
 
     An unmeasured latency is charged `UNMEASURED_LATENCY_PENALTY_MS` rather than zero. Zero
     would make an untimed policy the cheapest available and win on a number nobody has.
+
+    An unmeasured false-positive count gets the same never-flatter treatment, taken to
+    its limit: infinity, so the policy can never win the ranking. The old default was 0 —
+    the best possible value, handed to exactly the policy nobody could measure, in the
+    module whose stated rule is that an unmeasured metric never flatters.
     """
+    false_positives = getattr(policy, "false_positives", None)
+    if false_positives is None:
+        return float("inf")
+
     latency = getattr(policy, "estimated_latency_ms", None)
     if latency is None:
         latency = UNMEASURED_LATENCY_PENALTY_MS
 
     return (
-        weights.false_positive_weight * getattr(policy, "false_positives", 0)
+        weights.false_positive_weight * false_positives
         + weights.latency_weight * latency
     )
 

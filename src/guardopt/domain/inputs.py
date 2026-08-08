@@ -220,6 +220,25 @@ class OptimiserConfig(BaseModel):
     #: it is bounded rather than free.
     max_stage_size: int = Field(default=3, ge=1)
 
+    #: Hold this fraction of cases out of the search and report both numbers.
+    #:
+    #: Off by default. Candidate thresholds are placed at this dataset's label-transition
+    #: midpoints and the winner is the best of up to 50,000 tries on the same cases — so
+    #: the reported in-sample metrics are optimistically biased maxima, not neutral
+    #: measurements. A holdout turns that bias from a caveat into a measured quantity:
+    #: search on the train split, then show what the same policies do on cases the search
+    #: never saw. The split is stratified by expected action, deterministic under
+    #: `holdout_seed`, and REFUSED (with the reason named) when the holdout would carry
+    #: too few unsafe cases to say anything.
+    holdout_fraction: float | None = Field(default=None, gt=0, lt=1)
+    holdout_seed: int = 0
+
+    #: Resample the dataset this many times and report how often each recommended policy
+    #: still wins its profile's objective. Off at 0. The check re-counts stored outcome
+    #: signatures rather than re-simulating, so it is cheap; see `domain.stability`.
+    bootstrap_rounds: int = Field(default=0, ge=0)
+    bootstrap_seed: int = 0
+
     model_config = ConfigDict(from_attributes=True)
 
 

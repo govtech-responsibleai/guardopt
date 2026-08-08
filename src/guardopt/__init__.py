@@ -15,6 +15,7 @@ The top level re-exports the pure path only. The runtime is imported explicitly 
 who just wants to analyse a spreadsheet of scores should not pull in an HTTP stack to do it.
 """
 
+from guardopt.domain.constraints import Constraints, ObjectiveWeights, best_by_objective
 from guardopt.domain.inputs import (
     GuardrailDefinition,
     GuardrailTestResult,
@@ -39,16 +40,25 @@ from guardopt.domain.types import (
     SearchMethod,
     StageCondition,
 )
-from guardopt.optimise import OptimisationResult, ProfileRecommendation, optimise
+from guardopt.optimise import (
+    HoldoutEvaluation,
+    OptimisationResult,
+    ProfileRecommendation,
+    optimise,
+)
+from guardopt.report import render_markdown
 
 __all__ = [
     "POLICY_SCHEMA_VERSION",
+    "Constraints",
     "ExpectedAction",
     "GuardrailBinding",
     "GuardrailDefinition",
     "GuardrailOutcome",
     "GuardrailTestResult",
+    "HoldoutEvaluation",
     "MissingResultPolicy",
+    "ObjectiveWeights",
     "OptimisationResult",
     "OptimiserConfig",
     "OptimiserRequest",
@@ -62,5 +72,7 @@ __all__ = [
     "Stage",
     "StageCondition",
     "TestCaseGuardrailResults",
+    "best_by_objective",
     "optimise",
+    "render_markdown",
 ]

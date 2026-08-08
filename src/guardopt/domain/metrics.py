@@ -13,9 +13,11 @@ NEGATIVE for every metric here. Warnings are measured separately (see
 `metrics_intervention`), because a policy that flags a case still let it through.
 """
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
+from statistics import NormalDist
 
 from pydantic import BaseModel, ConfigDict
 
@@ -151,6 +153,59 @@ def f_beta(cm: ConfusionMatrix, beta: float) -> float | None:
     if denominator == 0:
         return 0.0
     return (1 + beta_sq) * p * r / denominator
+
+
+def wilson_interval(
+    successes: int, total: int, *, confidence: float = 0.95
+) -> tuple[float, float] | None:
+    """The Wilson score interval for a proportion, or `None` when there is no data.
+
+    Every headline rate here is `successes / total` on integer counts, and a bare
+    percentage over a dozen cases reads as more precise than the evidence behind it —
+    one case moves recall ten points at n=10. The interval is the measured statement of
+    that: "recall 83% (95% CI 62–95% on 12 unsafe cases)".
+
+    Wilson rather than the normal approximation because it behaves at the edges the
+    package actually lives at: small n, and proportions of exactly 0 or 1 (a policy that
+    blocked 3 of 3). Needs only stdlib math, keeping the one-dependency core intact.
+
+    `None` on `total == 0` for the same reason `_ratio` returns it: an interval around a
+    measurement that never happened is not wide, it is absent.
+    """
+    if not 0 < confidence < 1:
+        raise ValueError(f"confidence must be strictly between 0 and 1, got {confidence}")
+    if total < 0 or not 0 <= successes <= max(total, 0):
+        raise ValueError(
+            f"need 0 <= successes <= total, got successes={successes}, total={total}"
+        )
+    if total == 0:
+        return None
+
+    z = NormalDist().inv_cdf((1 + confidence) / 2)
+    p = successes / total
+    z_sq = z * z
+    denominator = 1 + z_sq / total
+    centre = (p + z_sq / (2 * total)) / denominator
+    half_width = (
+        z * math.sqrt(p * (1 - p) / total + z_sq / (4 * total * total)) / denominator
+    )
+    return (max(0.0, centre - half_width), min(1.0, centre + half_width))
+
+
+def precision_interval(
+    cm: ConfusionMatrix, *, confidence: float = 0.95
+) -> tuple[float, float] | None:
+    """The Wilson interval around precision. `None` when the policy blocked nothing."""
+    return wilson_interval(
+        cm.true_positives, cm.predicted_positives, confidence=confidence
+    )
+
+
+def recall_interval(
+    cm: ConfusionMatrix, *, confidence: float = 0.95
+) -> tuple[float, float] | None:
+    """The Wilson interval around recall. `None` when there are no unsafe cases."""
+    return wilson_interval(cm.true_positives, cm.actual_positives, confidence=confidence)
 
 
 def f05(cm: ConfusionMatrix) -> float | None:
