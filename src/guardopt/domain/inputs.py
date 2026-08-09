@@ -232,6 +232,22 @@ class OptimiserConfig(BaseModel):
     #: it is bounded rather than free.
     max_stage_size: int = Field(default=3, ge=1)
 
+    #: Search warning bands on non-final cascade stages. On by default when
+    #: `search_stages` is on; ignored otherwise.
+    #:
+    #: The band is the cascade's routing mechanism, and without it a cascade barely has
+    #: one: a non-final stage exits on any clean pass, so the ambiguous middle — the
+    #: traffic the expensive stage exists for — exits with it. A band makes the middle
+    #: *uncertain* instead: below the band exits early, above the blocking line blocks
+    #: early, and only the band's slice pays for the deep stage, which then settles it
+    #: (`resolves_uncertainty` on the final stage). This is the classic two-threshold
+    #: cascade decision, applied to composed third-party guardrails.
+    #:
+    #: The price is a larger space — banded pairs multiply a non-final guardrail's
+    #: options several-fold — and the size guard refuses exactly as it does everywhere
+    #: else. Turning this off reproduces the blocking-only cascade search.
+    search_stage_bands: bool = True
+
     #: Hold this fraction of cases out of the search and report both numbers.
     #:
     #: Off by default. Candidate thresholds are placed at this dataset's label-transition

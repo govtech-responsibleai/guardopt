@@ -42,6 +42,16 @@ demanded.
 
 ### Added
 
+- **Warning bands as the cascade's routing dimension**
+  (`OptimiserConfig.search_stage_bands`, on by default with `search_stages`). Non-final
+  stages search two-threshold bands: below the band exits early, past the blocking line
+  blocks early, and only the ambiguous middle escalates — to a final stage that
+  adjudicates (`resolves_uncertainty`), so a cleared escalation is a pass, not a
+  residual flag. On the synthetic RQ2 sweep this took cascade savings at matched
+  accuracy from under 1% to 12–97%, and in some configurations a banded cascade beats
+  the best flat policy's F1 outright — three-way routing reaches behaviours no flat
+  threshold policy can express. The banded space is sized before enumeration like
+  everything else, and the flag off reproduces the blocking-only search (the ablation).
 - **The money half of the cost model, wired to data.** A per-call price reaches the
   optimiser from either side — observed `cost` on result rows (carried through
   `materialise`), or a declared `GuardrailDefinition.cost_per_call` — with measured

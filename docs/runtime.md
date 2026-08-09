@@ -259,5 +259,19 @@ request = OptimiserRequest(
 ```
 
 It earns its cost when guardrails differ sharply in price. A cascade reaching the same
-verdicts as a flat policy more cheaply **dominates** it, because latency is a frontier axis
-— so the search will find it and the frontier will keep it.
+verdicts as a flat policy more cheaply **dominates** it, because latency and cost are
+frontier axes — so the search will find it and the frontier will keep it.
+
+### Warning bands are the routing dimension
+
+By default (`search_stage_bands=True`) the search also places warning bands on
+non-final stages. The band is what makes a cascade more than a reordering: a score
+below it exits early, a score past the blocking line blocks early, and only the band's
+ambiguous middle pays for the stages after it — which then settle it, so an escalated
+request the deep stage clears is a clean pass, not a residual flag.
+
+Measured on the synthetic sweep in `experiments/`: without bands, cascade savings
+collapse to the cheap guardrail's share of the bill (under 1%); with them, 12–97% at
+matched accuracy, largest where a cheap guardrail sees most of what the expensive one
+sees and most traffic is clearly safe. Turning the flag off reproduces the
+blocking-only search — that is the ablation, not a recommendation.

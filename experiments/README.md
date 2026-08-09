@@ -56,11 +56,20 @@ The first pilot run (2026-08-09) surfaced two things worth more than the table i
    key and cost is a distant tie-breaker, so a 10x-cheaper cascade that gives up 0.01 of
    F1 never claims a profile slot. Cost-sensitive selection is a constraints /
    `best_by_objective` question, and the paper should present it that way.
-2. **Searched cascades lack the mechanism that makes cascades win.** Non-final stages
+2. **Searched cascades lacked the mechanism that makes cascades win.** Non-final stages
    always allow exit, and with no warning bands searched for cascade stages, an exit
-   fires on any clean pass — so the ambiguous middle exits instead of escalating, and
-   the achievable saving collapses to the cheap guardrail's share of the bill. The
-   classic fix (WaldBoost's two-threshold band per stage, routing only the uncertain
-   middle onward) is precisely what `stage_search` does not yet search. Searching stage
-   bands — or `allow_exit` as a variant — is the method work RQ2 now motivates with
-   data.
+   fired on any clean pass — so the ambiguous middle exited instead of escalating, and
+   the achievable saving collapsed to the cheap guardrail's share of the bill (≤1%
+   across the whole grid). The classic fix is WaldBoost's two-threshold band per stage,
+   routing only the uncertain middle onward.
+
+   **Follow-up (same day): stage-band search implemented
+   (`OptimiserConfig.search_stage_bands`, on by default) and the grid rerun.** Savings
+   within a 0.02 F1 tolerance went from ≤1% to **12–97%**, largest exactly where the
+   mechanism predicts (redundant guardrails, high traffic skew, high cost ratio:
+   96–97%), moderate where the deep stage genuinely must run (complementary traffic).
+   The Balanced recommendation itself becomes a cascade in 16 of 18 configurations —
+   through the accuracy-first tie-breakers, no cost weighting needed — and in 2
+   configurations the banded cascade *beats* the flat search's F1: three-way routing
+   reaches behaviours no flat threshold policy can express. This is the paper's method
+   delta, with its ablation (`search_stage_bands=False`) built in.

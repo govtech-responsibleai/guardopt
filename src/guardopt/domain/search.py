@@ -22,6 +22,7 @@ from guardopt.domain.candidates import (
     behaviourally_distinct_pairs,
     default_pair,
     generate_failed_only_pairs,
+    generate_threshold_pairs,
     generate_threshold_values,
     pairs_that_can_block,
 )
@@ -679,18 +680,56 @@ class StagedPolicyEvaluator:
         return evaluated
 
 
-def _threshold_space_for(
-    spaces: Sequence[GuardrailCandidateSpace], names: Sequence[str]
-) -> int:
-    """How many threshold assignments a plan over `names` has.
+def _banded_pairs_by_name(
+    request: OptimiserRequest,
+) -> dict[str, tuple[GuardrailThresholds, ...]]:
+    """Per-guardrail threshold pairs WITH warning bands, for non-final cascade stages.
 
-    No "disabled" option here: the plan already decided which guardrails are in it.
+    The flat search strips bands because there a band is inert for blocking and the
+    pairing costs ~7x per guardrail. In a cascade the band is not inert — it is the
+    routing signal: a score inside it makes the request uncertain, which blocks the
+    early exit and escalates to the next stage. So non-final stages search the full
+    legal pairing, pruned by the same two rules as everywhere else: pairs that cannot
+    block are dropped at the source, and behavioural duplicates (same
+    pass/warning/fail pattern on this dataset) collapse to their first representative.
+    The no-band variant of every blocking threshold is generated first, so blocking-only
+    cascades stay reachable and win ties by default.
     """
-    by_name = {space.guardrail_name: space for space in spaces}
-    size = 1
-    for name in names:
-        size *= len(by_name[name].pairs)
-    return size
+    banded: dict[str, tuple[GuardrailThresholds, ...]] = {}
+    for definition in request.guardrails:
+        values = generate_threshold_values(
+            definition,
+            request.test_cases,
+            request.config.max_threshold_candidates_per_guardrail,
+        )
+        pairs = generate_threshold_pairs(definition, values)
+        pairs = pairs_that_can_block(definition, pairs, request.test_cases)
+        banded[definition.name] = behaviourally_distinct_pairs(
+            definition, pairs, request.test_cases
+        )
+    return banded
+
+
+def _plan_options(
+    plan: "tuple[tuple[str, ...], ...]",
+    spaces_by_name: Mapping[str, GuardrailCandidateSpace],
+    banded_by_name: Mapping[str, tuple[GuardrailThresholds, ...]] | None,
+) -> list[tuple[GuardrailThresholds, ...]]:
+    """The threshold options for each guardrail in a plan, in plan order.
+
+    Non-final stages offer banded pairs (when band search is on); the final stage offers
+    blocking-only pairs — it has nothing downstream to route to, so a band there could
+    only flag, and flagging lines are the warning ladder's job.
+    """
+    options: list[tuple[GuardrailThresholds, ...]] = []
+    for stage_index, stage in enumerate(plan):
+        final = stage_index == len(plan) - 1
+        for name in stage:
+            if banded_by_name is not None and not final:
+                options.append(banded_by_name[name])
+            else:
+                options.append(spaces_by_name[name].pairs)
+    return options
 
 
 def stage_search(
@@ -701,7 +740,8 @@ def stage_search(
     Sized in two steps, both arithmetic and both before anything is evaluated. The plan
     count is checked first because enumerating plans for a large guardrail set is itself
     unaffordable; then the exact policy total is summed over those plans, since threshold
-    counts differ per guardrail and a uniform estimate would be wrong in both directions.
+    counts differ per guardrail — and per stage position, once non-final stages search
+    warning bands — so a uniform estimate would be wrong in both directions.
 
     **Mandatory guardrails are enforced here exactly as the flat search enforces them.** The
     flat path never offers a mandatory guardrail its "disabled" slot; the staged path is a
@@ -709,6 +749,14 @@ def stage_search(
     guardrail out. Dropping those plans before the exact policy total is summed keeps the
     size guard honest — it counts what will actually be enumerated, not cascades the search
     would never emit.
+
+    **Warning bands are the routing dimension** (`config.search_stage_bands`). A banded
+    non-final stage splits traffic three ways: clearly clean exits early, clearly bad
+    blocks early, and only the band's ambiguous middle pays for the stages after it. The
+    final stage runs with `resolves_uncertainty`, so a clean adjudication settles an
+    escalated request as a PASS rather than leaving a residual flag — the deep stage was
+    consulted and answered. Without bands (the ablation, and the old behaviour) a cascade
+    can only block early or exit early, and the middle exits with everything else.
     """
     flat, flat_diagnostics = search_policies(request, _allow_stages=False)
 
@@ -717,6 +765,7 @@ def stage_search(
     mandatory = frozenset(s.guardrail_name for s in spaces if s.is_mandatory)
     limit = request.config.max_exhaustive_candidates
     max_stage_size = request.config.max_stage_size
+    search_bands = request.config.search_stage_bands
 
     # count_stage_plans counts every plan; mandatory filtering only removes plans, so it
     # stays a valid upper bound on the enumeration this function is about to perform.
@@ -730,19 +779,26 @@ def stage_search(
         for plan in enumerate_stage_plans(names, max_stage_size)
         if mandatory.issubset(name for stage in plan for name in stage)
     ]
-    total = sum(
-        _threshold_space_for(spaces, [name for stage in plan for name in stage])
-        for plan in plans
-    )
+
+    spaces_by_name = {space.guardrail_name: space for space in spaces}
+    banded_by_name = _banded_pairs_by_name(request) if search_bands else None
+
+    def plan_size(plan: "tuple[tuple[str, ...], ...]") -> int:
+        size = 1
+        for options in _plan_options(plan, spaces_by_name, banded_by_name):
+            size *= len(options)
+        return size
+
+    total = sum(plan_size(plan) for plan in plans)
     check_combined_space(stage_plan_count=total, threshold_space_size=1, limit=limit)
 
     evaluator = StagedPolicyEvaluator(request)
-    by_name = {space.guardrail_name: space for space in spaces}
     staged: list[EvaluatedPolicy] = []
 
     for plan in plans:
         plan_names = [name for stage in plan for name in stage]
-        for combination in product(*(by_name[name].pairs for name in plan_names)):
+        options = _plan_options(plan, spaces_by_name, banded_by_name)
+        for combination in product(*options):
             thresholds = dict(zip(plan_names, combination))
             policy = Policy(
                 name="staged",
@@ -766,6 +822,10 @@ def stage_search(
                         # skip. Exiting is what a cascade is for, so it is searched as the
                         # default rather than as a variant.
                         allow_exit=stage is not plan[-1],
+                        # With bands in play the final stage is the adjudicator: a request
+                        # escalated as uncertain and cleared here was consulted and
+                        # answered, not left carrying a residual flag.
+                        resolves_uncertainty=search_bands and stage is plan[-1],
                     )
                     for index, stage in enumerate(plan, start=1)
                 ),
