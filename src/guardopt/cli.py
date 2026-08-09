@@ -33,10 +33,14 @@ from pydantic import ValidationError
 from guardopt.domain.constraints import Constraints
 from guardopt.domain.inputs import GuardrailDefinition, OptimiserConfig
 from guardopt.domain.matrix import ScoreMatrix
+from guardopt.domain.policy import Policy
 from guardopt.domain.search import CandidateSpaceTooLargeError
 from guardopt.domain.stage_plans import StagePlanSpaceTooLargeError
+from guardopt.domain.types import RecommendationProfile
 from guardopt.optimise import optimise
 from guardopt.report import render_markdown
+from guardopt.report_html import render_html
+from guardopt.retune import retune
 
 __all__ = ["main"]
 
@@ -81,6 +85,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="where to write the Markdown report (default: stdout)",
     )
     optimise_parser.add_argument(
+        "--html",
+        type=Path,
+        default=None,
+        help="also write a self-contained HTML report (with the trade-off chart) here",
+    )
+    optimise_parser.add_argument(
         "--search-stages",
         action="store_true",
         help="also search staged cascades (cheap checks first, expensive on uncertainty)",
@@ -106,6 +116,38 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="MS",
         help="constraint: only recommend policies estimated at most this slow",
     )
+
+    retune_parser = subparsers.add_parser(
+        "retune",
+        help=(
+            "re-optimise on fresh scores and say whether the pick beats an incumbent "
+            "policy, on holdout evidence"
+        ),
+    )
+    retune_parser.add_argument(
+        "scores", type=Path, help="CSV of fresh scores: one row per case, one column per guardrail"
+    )
+    retune_parser.add_argument(
+        "--guardrails", type=Path, required=True,
+        help="JSON list of guardrail definitions (name, score_direction, ranges)",
+    )
+    retune_parser.add_argument(
+        "--incumbent", type=Path, required=True,
+        help="the currently deployed policy JSON to compare against",
+    )
+    retune_parser.add_argument(
+        "--holdout", type=float, default=0.3, metavar="FRACTION",
+        help="holdout fraction the verdict is judged on (default: 0.3)",
+    )
+    retune_parser.add_argument(
+        "--profile", choices=[p.value for p in RecommendationProfile],
+        default=RecommendationProfile.BALANCED.value,
+        help="which profile's objective decides the verdict (default: balanced)",
+    )
+    retune_parser.add_argument(
+        "--search-stages", action="store_true",
+        help="also search staged cascades in the fresh optimisation",
+    )
     return parser
 
 
@@ -126,6 +168,14 @@ def _run_optimise(args: argparse.Namespace) -> int:
     result = optimise(matrix, config=config, constraints=constraints)
     rendered = render_markdown(result, title=f"guardopt report — {args.scores.name}")
 
+    if args.html is not None:
+        args.html.parent.mkdir(parents=True, exist_ok=True)
+        args.html.write_text(
+            render_html(result, title=f"guardopt report — {args.scores.name}"),
+            encoding="utf-8",
+        )
+        print(f"wrote {args.html}", file=sys.stderr)
+
     if args.out is None:
         sys.stdout.write(rendered)
     else:
@@ -140,11 +190,40 @@ def _run_optimise(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_retune(args: argparse.Namespace) -> int:
+    guardrails = _load_guardrails(args.guardrails)
+    matrix = ScoreMatrix.from_csv(args.scores, guardrails)
+    incumbent = Policy.from_file(args.incumbent)
+
+    config = OptimiserConfig(
+        search_stages=args.search_stages,
+        holdout_fraction=args.holdout,
+    )
+    request = matrix.to_request(config)
+    outcome = retune(
+        request, incumbent, profile=RecommendationProfile(args.profile)
+    )
+
+    print(outcome.sentence())
+    if outcome.diff is not None:
+        for label, ids in (
+            ("unsafe newly blocked", outcome.diff.newly_blocked_unsafe_ids),
+            ("unsafe newly missed", outcome.diff.no_longer_blocked_unsafe_ids),
+            ("safe newly blocked", outcome.diff.newly_blocked_safe_ids),
+            ("safe released", outcome.diff.no_longer_blocked_safe_ids),
+        ):
+            if ids:
+                print(f"  {label}: {', '.join(ids)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         if args.command == "optimise":
             return _run_optimise(args)
+        if args.command == "retune":
+            return _run_retune(args)
         raise AssertionError(f"unknown command {args.command!r}")  # argparse prevents this
     except (
         ValueError,

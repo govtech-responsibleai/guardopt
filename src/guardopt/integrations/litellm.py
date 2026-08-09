@@ -89,13 +89,7 @@ class GuardoptGuardrail(CustomGuardrail):
             definitions=DEFINITIONS,
         )
 
-    async def async_pre_call_hook(self, user_api_key_dict, cache, data, call_type):
-        messages = data.get("messages") or []
-        text = " ".join(
-            str(message.get("content", ""))
-            for message in messages
-            if isinstance(message, dict)
-        )
+    async def _decide(self, text):
         decision = await self.router.run({{"text": text}})
         if decision.outcome is PolicyOutcome.FAIL:
             message = (
@@ -107,8 +101,50 @@ class GuardoptGuardrail(CustomGuardrail):
             if HTTPException is not None:
                 raise HTTPException(status_code=400, detail={{"error": message}})
             raise ValueError(message)
-        return data
+
+__HOOK__
 '''
+
+_PROMPT_TEXT_SNIPPET = '''\
+        messages = data.get("messages") or []
+        text = " ".join(
+            str(message.get("content", ""))
+            for message in messages
+            if isinstance(message, dict)
+        )
+'''
+
+#: One hook per lifecycle phase, matching the installed CustomGuardrail signatures
+#: (verified live by tests/test_litellm_live.py). pre_call and during_call scan the
+#: request; post_call scans the model's RESPONSE — the output-guardrail case.
+_HOOKS = {
+    "pre_call": (
+        "    async def async_pre_call_hook(self, user_api_key_dict, cache, data, "
+        "call_type):\n"
+        + _PROMPT_TEXT_SNIPPET
+        + "        await self._decide(text)\n"
+        + "        return data\n"
+    ),
+    "during_call": (
+        "    async def async_moderation_hook(self, data, user_api_key_dict, "
+        "call_type):\n"
+        + _PROMPT_TEXT_SNIPPET
+        + "        await self._decide(text)\n"
+        + "        return data\n"
+    ),
+    "post_call": (
+        "    async def async_post_call_success_hook(self, data, user_api_key_dict, "
+        "response):\n"
+        "        parts = []\n"
+        "        for choice in getattr(response, \"choices\", None) or []:\n"
+        "            message = getattr(choice, \"message\", None)\n"
+        "            content = getattr(message, \"content\", None)\n"
+        "            if content:\n"
+        "                parts.append(str(content))\n"
+        "        await self._decide(\" \".join(parts))\n"
+        "        return response\n"
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,7 +177,7 @@ def export_litellm(
         policy_json=policy.to_json(),
         definitions=definitions_literal(policy, definitions),
         guard_names=guard_names,
-    )
+    ).replace("__HOOK__", _HOOKS[mode])
     config = _CONFIG_TEMPLATE.format(
         guardrail_name=guardrail_name, module_name=module_name, mode=mode
     )
@@ -153,6 +189,12 @@ def export_litellm(
         "has no warning tier — so flagged-for-review traffic must be read off your "
         "own logging around the router if you need it.",
     ]
+    if mode == "post_call":
+        notes.append(
+            "post_call scans the model's RESPONSE, not the prompt: the policy's "
+            "thresholds were tuned on whatever text its matrix scored, so use a "
+            "matrix of responses when optimising a response-side policy."
+        )
     if len(policy.stages) > 1:
         notes.append(
             "The cascade executes inside this one guardrail via guardopt's router "

@@ -40,6 +40,21 @@ from guardopt.domain.types import (
     SearchMethod,
     StageCondition,
 )
+from guardopt.domain.calibration import (
+    Calibration,
+    calibrate,
+    calibrated_cases,
+    calibrated_definition,
+)
+from guardopt.domain.diff import CaseChange, PolicyDiff, diff_policies
+from guardopt.domain.labelling import (
+    LabelSuggestion,
+    UnlabelledCase,
+    suggest_labels,
+    unsafe_labels_needed,
+)
+from guardopt.domain.risk import RiskBound, false_negative_bound
+from guardopt.domain.slices import SliceMetrics, SliceReport, evaluate_slices
 from guardopt.optimise import (
     HoldoutEvaluation,
     OptimisationResult,
@@ -47,9 +62,12 @@ from guardopt.optimise import (
     optimise,
 )
 from guardopt.report import render_markdown
+from guardopt.report_html import render_html
+from guardopt.retune import RetuneResult, RetuneVerdict, retune
 
 __all__ = [
-    "POLICY_SCHEMA_VERSION",
+    "Calibration",
+    "CaseChange",
     "Constraints",
     "ExpectedAction",
     "GuardrailBinding",
@@ -57,22 +75,41 @@ __all__ = [
     "GuardrailOutcome",
     "GuardrailTestResult",
     "HoldoutEvaluation",
+    "LabelSuggestion",
     "MissingResultPolicy",
     "ObjectiveWeights",
     "OptimisationResult",
     "OptimiserConfig",
     "OptimiserRequest",
+    "POLICY_SCHEMA_VERSION",
     "Policy",
+    "PolicyDiff",
     "PolicyOutcome",
     "ProfileRecommendation",
     "RecommendationProfile",
+    "RetuneResult",
+    "RetuneVerdict",
+    "RiskBound",
     "ScoreDirection",
     "ScoreMatrix",
     "SearchMethod",
+    "SliceMetrics",
+    "SliceReport",
     "Stage",
     "StageCondition",
     "TestCaseGuardrailResults",
+    "UnlabelledCase",
     "best_by_objective",
+    "calibrate",
+    "calibrated_cases",
+    "calibrated_definition",
+    "diff_policies",
+    "evaluate_slices",
+    "false_negative_bound",
     "optimise",
+    "render_html",
     "render_markdown",
+    "retune",
+    "suggest_labels",
+    "unsafe_labels_needed",
 ]

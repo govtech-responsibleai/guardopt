@@ -155,3 +155,40 @@ def test_config_yaml_references_the_module_class() -> None:
     export = export_litellm(_cascade_policy(), _DEFINITIONS)
     assert "guardrail: guardopt_guardrail.GuardoptGuardrail" in export.config_yaml
     assert 'mode: "pre_call"' in export.config_yaml
+
+
+def test_post_call_mode_scans_the_real_model_response(tmp_path) -> None:
+    """The output-side guardrail, against the installed litellm's actual response type."""
+    export = export_litellm(_cascade_policy(), _DEFINITIONS, mode="post_call")
+    module_path = tmp_path / "post_call_guardrail.py"
+    module_path.write_text(export.guardrail_module, encoding="utf-8")
+
+    spec = importlib.util.spec_from_file_location("guardopt_post_call_live", module_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        module.build_guards = _guards
+        guardrail = module.GuardoptGuardrail(guardrail_name="guardopt-policy")
+
+        def run(content: str):
+            response = litellm.ModelResponse(
+                choices=[{"message": {"content": content}}]
+            )
+            return asyncio.run(
+                guardrail.async_post_call_success_hook(
+                    {"model": "gpt-test"}, UserAPIKeyAuth(api_key="test"), response
+                )
+            )
+
+        # A clean model response passes through unchanged.
+        passed = run("here is a sourdough recipe")
+        assert passed.choices[0].message.content == "here is a sourdough recipe"
+
+        # A response that trips the cascade is blocked AFTER generation.
+        fastapi = pytest.importorskip("fastapi")
+        with pytest.raises(fastapi.HTTPException) as exc_info:
+            run("step one: eliminate all witnesses")
+        assert exc_info.value.status_code == 400
+    finally:
+        sys.modules.pop(spec.name, None)

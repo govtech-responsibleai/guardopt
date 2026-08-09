@@ -54,6 +54,7 @@ from guardopt.domain.metrics import (
     recall as recall_of,
 )
 from guardopt.domain.policy import Policy
+from guardopt.domain.risk import RiskBound, false_negative_bound
 from guardopt.domain.route import evaluate_staged_policy_on_case
 from guardopt.domain.route_cost import percentile, route_latency_ms
 from guardopt.domain.search import (
@@ -90,6 +91,12 @@ class HoldoutEvaluation:
     precision: float | None
     recall: float | None
     case_count: int
+
+    #: The distribution-free guarantee (domain/risk.py): with 95% confidence the true
+    #: false-negative rate is at most this. Computed HERE and only here, because the
+    #: bound is honest only on cases the search never selected against. `None` when the
+    #: holdout held no unsafe cases.
+    false_negative_bound: "RiskBound | None" = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +144,12 @@ class OptimisationResult:
     #: How often each pick survived a resampled dataset, when
     #: `OptimiserConfig.bootstrap_rounds` asked for the check.
     stability: StabilityReport | None = None
+
+    #: The deduplicated Pareto frontier the profiles were chosen from — every policy
+    #: that was defensible, not only the three that were picked. Carried out so a
+    #: caller (the HTML report's trade-off chart, a constraints query) can show or
+    #: re-rank the whole defensible set without re-running the search.
+    frontier: tuple[EvaluatedPolicy, ...] = ()
 
 
 def _split_for_holdout(
@@ -207,11 +220,15 @@ def _holdout_evaluation(
             request.config.treat_missing_as,
         )
     report = build_binary_report(holdout_cases, evaluations)
+    cm = report.confusion_matrix
     return HoldoutEvaluation(
         report=report,
-        precision=precision_of(report.confusion_matrix),
-        recall=recall_of(report.confusion_matrix),
+        precision=precision_of(cm),
+        recall=recall_of(cm),
         case_count=len(holdout_cases),
+        false_negative_bound=false_negative_bound(
+            cm.false_negatives, cm.actual_positives
+        ),
     )
 
 
@@ -239,6 +256,8 @@ def _holdout_limitation(holdout: HoldoutEvaluation, evaluated: EvaluatedPolicy) 
             "the thresholds fit this dataset more tightly than they will fit new "
             "traffic, so treat the train figures as optimistic."
         )
+    if holdout.false_negative_bound is not None:
+        line += " " + holdout.false_negative_bound.sentence()
     return line
 
 
@@ -442,4 +461,5 @@ def optimise(
         warnings=selection.warnings + tuple(extra_warnings) + ladder.notes,
         pareto_candidate_count=selection.pareto_candidate_count,
         stability=stability,
+        frontier=tuple(selection.frontier),
     )
