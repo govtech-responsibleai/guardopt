@@ -24,29 +24,38 @@ released alongside the paper.
 experiments/
   README.md            this file
   synthetic_pilot.py   RQ2 controlled sweep on generated data — runs offline, now
+  datasets/            loaders: ToxicChat, OpenAI moderation eval, BeaverTails,
+                       UnSmile, WildGuardMix (gated: HF_TOKEN), Jigsaw (manual)
+  gateway.py           PlatformAI client (per platformai-api.md; keys via env, never
+                       printed)
+  judges.py            the LLM-judge guardrail fleet: 3 signals per call, priced from
+                       token usage (edit PRICES_PER_MTOKEN_USD to contract prices)
+  score.py             the scoring harness: dataset x fleet -> raw.jsonl + scores.csv
+                       + guardrails.json, spend confirmed before any call
+  matrixio.py          raw-matrix read/write (the experiments load raw.jsonl — the CSV
+                       cannot carry per-call latency and cost)
+  data/                downloaded dataset pools (gitignored — licences and size)
   results/             outputs (gitignored; regenerate, don't commit)
 ```
 
-Planned as the real datasets land (see PAPER-PLAN.md for the full sequencing):
-
-```
-  datasets/            loaders + label mapping for ToxicChat, WildGuardMix, OpenAI
-                       moderation eval, BeaverTails, Jigsaw, UnSmile
-  score.py             the materialise harness: datasets x guardrail fleet -> CSVs,
-                       recording real per-call latency and cost
-  baselines/           per-guardrail sklearn tuning, TruSThresh reimplementation
-                       (from the Wayback snapshot of hyperconnect/trusthresh),
-                       Optuna joint search, best-single-guardrail
-  run_rq1.py ... run_rq5.py
-```
+Still to build: `baselines/` (per-guardrail sklearn tuning, TruSThresh reimplementation,
+Optuna joint search, best-single-guardrail) and `run_rq1.py … run_rq5.py`.
 
 ## Running
 
 ```bash
-.venv311/bin/python experiments/synthetic_pilot.py
+.venv311/bin/python experiments/synthetic_pilot.py        # offline RQ2 sweep
+
+.venv311/bin/python -m experiments.score --check-env      # names present? (no values)
+.venv311/bin/python -m experiments.score --smoke          # gateway + key work?
+.venv311/bin/python -m experiments.score \
+  --dataset toxicchat --sample 200 \
+  --models gemini-3.5-flash-lite,azure.claude-haiku-4-5   # a real scoring run
 ```
 
-Prints the sweep table and writes `results/synthetic_pilot.csv`.
+Scoring needs `PLATFORMAI_API_BASE` and `PLATFORMAI_API_KEY` in the environment or the
+repo-root env file (those exact names, per platformai-api.md). The run states its case
+count and an estimated spend ceiling and asks before making any call.
 
 ## Pilot findings so far
 

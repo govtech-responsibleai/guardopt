@@ -15,3 +15,9 @@ site/
 # local 3.11 check venv
 .venv311/
 experiments/results/
+experiments/data/
+
+# Secrets. Never tracked, under any name or nesting.
+.env
+.env.*
+**/.env
