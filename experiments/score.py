@@ -77,6 +77,13 @@ def main(argv: list[str] | None = None) -> int:
         help="comma-separated gateway model ids for the judge fleet",
     )
     parser.add_argument("--yes", action="store_true", help="skip the spend confirmation")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="records in flight at once; in-flight calls = this x judges, and the "
+        "gateway doc caps ~5, so 2 is the sane ceiling for a two-judge fleet",
+    )
     parser.add_argument("--env-file", default=".env", help="where the keys live (never printed)")
     args = parser.parse_args(argv)
 
@@ -152,7 +159,13 @@ def main(argv: list[str] | None = None) -> int:
         if done % 10 == 0 or done == total:
             print(f"  scored {done}/{total}", file=sys.stderr)
 
-    matrix = materialise_sync(records, guards, definitions, on_progress=progress)
+    matrix = materialise_sync(
+        records,
+        guards,
+        definitions,
+        max_concurrent_records=args.concurrency,
+        on_progress=progress,
+    )
 
     from experiments.matrixio import write_artifacts
 

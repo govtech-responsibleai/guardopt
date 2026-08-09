@@ -57,8 +57,19 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 def _parse_scores(content: str) -> dict[str, float]:
-    """Belt and braces per the gateway doc: strip fences, parse, validate, clamp."""
-    payload = json.loads(_FENCE.sub("", content.strip()))
+    """Belt and braces per the gateway doc, tightened by the first real run.
+
+    On live ToxicChat traffic ~20% of Haiku's replies carried prose after the JSON
+    object ("Extra data"), and a few led with prose before it — so the parser finds the
+    first `{` and `raw_decode`s from there, ignoring whatever surrounds the object. A
+    reply with no JSON object anywhere stays an error: that is usually a refusal, and a
+    refusal is a check that did not happen, never a pass.
+    """
+    stripped = _FENCE.sub("", content.strip())
+    start = stripped.find("{")
+    if start < 0:
+        raise ValueError(f"no JSON object in reply: {stripped[:80]!r}")
+    payload, _ = json.JSONDecoder().raw_decode(stripped[start:])
     if not isinstance(payload, Mapping):
         raise ValueError(f"expected a JSON object, got {type(payload).__name__}")
     scores: dict[str, float] = {}
