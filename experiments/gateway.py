@@ -13,6 +13,7 @@ never printed, never included in an exception, and never sent anywhere but the g
 
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -22,6 +23,12 @@ __all__ = ["GatewayError", "PlatformAIGateway", "load_env_file"]
 
 MODELS_SUFFIX = "/platform/models/v1"
 _BODY_EXCERPT_CHARS = 300
+
+#: The public host, verbatim from platformai-api.md §1. Used only when no base-URL
+#: variable is set at all: unlike the Sentinel host (where a default once pointed a dev
+#: box at production), PlatformAI has exactly one documented public host, so falling
+#: back to the documented value is quoting the doc, not guessing an environment.
+DOCUMENTED_HOST = "https://api-public.ai.tech.gov.sg"
 
 
 def load_env_file(path: str | Path = ".env") -> None:
@@ -71,27 +78,54 @@ class PlatformAIGateway:
         backoff_seconds: float = 1.0,
         sleep=time.sleep,
     ) -> None:
-        base = (api_base or os.environ.get("PLATFORMAI_API_BASE", "")).rstrip("/")
+        base = (
+            api_base
+            or os.environ.get("PLATFORMAI_API_BASE", "")
+            or os.environ.get("LITELLM_API_URL", "")
+        ).rstrip("/")
+        if not base:
+            print(
+                f"gateway: no base-URL variable set; using the documented PlatformAI "
+                f"host {DOCUMENTED_HOST} (set PLATFORMAI_API_BASE or LITELLM_API_URL "
+                f"to override)",
+                file=sys.stderr,
+            )
+            base = DOCUMENTED_HOST
         if not base.startswith(("http://", "https://")):
             # A placeholder base passed through produces connection errors to a
             # nonsense host mid-run; refuse at construction instead.
             raise GatewayError(
-                "PLATFORMAI_API_BASE is unset or not an http(s) URL. Set it to the "
-                "bare host from the portal; the /platform/models/v1 suffix is added "
-                "in code."
+                "the gateway base URL is not http(s): set PLATFORMAI_API_BASE (bare "
+                "host, per the doc) or LITELLM_API_URL. The path suffix is worked "
+                "out in code."
             )
-        if not base.endswith("/v1"):
-            if "/platform/" not in base:
-                base = f"{base}{MODELS_SUFFIX}"
-            else:
-                base = f"{base}/v1"
-        self._base = base
 
-        self._api_key = api_key or os.environ.get("PLATFORMAI_API_KEY", "")
+        # The URL shape depends on what the variable points at: PlatformAI wants
+        # /platform/models/v1 on a bare host, while a plain OpenAI-compatible proxy
+        # wants /v1 (or arrives already carrying it). A base that already ends in /v1
+        # is taken at its word; otherwise both known shapes are candidates and the
+        # first whose /models answers wins — decided once, at first use, never per
+        # request.
+        if base.endswith("/v1"):
+            self._base: str | None = base
+            self._base_candidates: list[str] = []
+        else:
+            self._base = None
+            self._base_candidates = [
+                f"{base}{MODELS_SUFFIX}" if "/platform/" not in base else f"{base}/v1",
+                f"{base}/v1",
+            ]
+
+        self._api_key = (
+            api_key
+            or os.environ.get("PLATFORMAI_API_KEY", "")
+            or os.environ.get("LITELLM_API_KEY", "")
+        )
         if not self._api_key:
             raise GatewayError(
-                "PLATFORMAI_API_KEY is unset. Export it, or put it in .env and call "
-                "load_env_file() first. It is never read into logs or errors."
+                "no gateway key: set PLATFORMAI_API_KEY or LITELLM_API_KEY, or put "
+                "one in the env file and call load_env_file() first. It is never "
+                "read into logs or errors."
             )
         self._timeout = timeout_seconds
         self._max_attempts = max_attempts
@@ -103,8 +137,36 @@ class PlatformAIGateway:
 
     # ── transport ─────────────────────────────────────────────────────────
 
+    def _ensure_base(self) -> str:
+        """Settle which URL shape this gateway speaks, once.
+
+        Probes `/models` on each candidate — the same call the doc's smoke test makes —
+        and keeps the first that answers. Refusal names every URL tried (paths carry no
+        secrets); a wrong-but-answering base cannot win because only a valid model
+        listing counts.
+        """
+        if self._base is not None:
+            return self._base
+        failures: list[str] = []
+        for candidate in self._base_candidates:
+            try:
+                payload = self._request_at(candidate, "GET", "/models", None)
+            except GatewayError as error:
+                failures.append(f"{candidate}: {error}")
+                continue
+            if isinstance(payload.get("data"), list):
+                self._base = candidate
+                return candidate
+            failures.append(f"{candidate}: answered without a model list")
+        raise GatewayError(
+            "no candidate base URL answered /models — tried:\n  " + "\n  ".join(failures)
+        )
+
     def _request(self, method: str, path: str, body: dict | None) -> dict:
-        url = f"{self._base}{path}"
+        return self._request_at(self._ensure_base(), method, path, body)
+
+    def _request_at(self, base: str, method: str, path: str, body: dict | None) -> dict:
+        url = f"{base}{path}"
         headers = {
             # Both forms, per the doc: raw HTTP is documented with x-api-key, SDKs use
             # Bearer, both are accepted and sending both is harmless.

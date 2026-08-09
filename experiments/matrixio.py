@@ -33,7 +33,7 @@ def write_artifacts(
     stem.parent.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
 
-    raw_path = stem.with_suffix(".raw.jsonl")
+    raw_path = stem.parent / f"{stem.name}.raw.jsonl"
     with raw_path.open("w", encoding="utf-8") as handle:
         for case in cases:
             handle.write(
@@ -59,7 +59,7 @@ def write_artifacts(
     written.append(raw_path)
 
     names = [definition.name for definition in definitions]
-    csv_path = stem.with_suffix(".scores.csv")
+    csv_path = stem.parent / f"{stem.name}.scores.csv"
     with csv_path.open("w", encoding="utf-8") as handle:
         handle.write(",".join(["test_case_id", "expected_action", *names]) + "\n")
         for case in cases:
@@ -75,7 +75,7 @@ def write_artifacts(
             handle.write(",".join(cells) + "\n")
     written.append(csv_path)
 
-    guardrails_path = stem.with_suffix(".guardrails.json")
+    guardrails_path = stem.parent / f"{stem.name}.guardrails.json"
     guardrails_path.write_text(
         json.dumps(
             [definition.model_dump(exclude_none=True) for definition in definitions],

@@ -87,7 +87,13 @@ def main(argv: list[str] | None = None) -> int:
 
         env_path = Path(args.env_file)
         print(f"env file {env_path.resolve()}: {'found' if env_path.exists() else 'NOT FOUND'}")
-        for name in ("PLATFORMAI_API_BASE", "PLATFORMAI_API_KEY", "HF_TOKEN"):
+        for name in (
+            "PLATFORMAI_API_BASE",
+            "PLATFORMAI_API_KEY",
+            "LITELLM_API_URL",
+            "LITELLM_API_KEY",
+            "HF_TOKEN",
+        ):
             print(f"{name}: {'set' if os.environ.get(name) else 'MISSING'}")
         return 0
 
