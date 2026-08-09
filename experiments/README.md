@@ -38,8 +38,11 @@ experiments/
   results/             outputs (gitignored; regenerate, don't commit)
 ```
 
-Still to build: `baselines/` (per-guardrail sklearn tuning, TruSThresh reimplementation,
-Optuna joint search, best-single-guardrail) and `run_rq1.py … run_rq5.py`.
+Baselines live in `baselines/` (best-single, independent-OR per-scorer tuning, Optuna
+joint search — needs `uv pip install optuna`, experiments-only — and the TruSThresh
+reimplementation from the WSDM'23 paper's specification; the official repo is deleted,
+so this is to our knowledge the only runnable implementation). `run_rq1.py` compares
+all of them on identical train/holdout splits. Still to build: `run_rq2.py … run_rq5.py`.
 
 ## Running
 

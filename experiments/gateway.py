@@ -38,9 +38,15 @@ def load_env_file(path: str | Path = ".env") -> None:
     comments skipped. Missing file is fine — the environment may already be configured.
     """
     resolved = Path(path)
-    if not resolved.exists():
+    try:
+        if not resolved.exists():
+            return
+        content = resolved.read_text(encoding="utf-8")
+    except PermissionError:
+        # Sandboxed environments deny even stat on secret files. The environment may
+        # still be configured directly; refusing here would block that path.
         return
-    for line in resolved.read_text(encoding="utf-8").splitlines():
+    for line in content.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
