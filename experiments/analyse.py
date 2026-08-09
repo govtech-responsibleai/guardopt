@@ -105,13 +105,23 @@ def analyse(stem: Path) -> None:
     if result.stability is not None:
         print(f"  {result.stability.sentence()}")
 
-    # ── the cascade pair: cheap toxicity vs dear toxicity ─────────────────
-    toxicity_names = sorted(
+    # ── the cascade pair: cheapest toxicity signal vs dearest ─────────────
+    def mean_cost(name: str) -> float:
+        charges = [
+            result.cost
+            for case in cases
+            if (result := case.result_for(name)) is not None and result.cost is not None
+        ]
+        return sum(charges) / len(charges) if charges else 0.0
+
+    all_toxicity = sorted(
         (definition.name for definition in definitions if definition.name.endswith(":toxicity")),
+        key=mean_cost,
     )
-    if len(toxicity_names) != 2:
-        print(f"  (cascade pair skipped: expected 2 toxicity signals, got {toxicity_names})")
+    if len(all_toxicity) < 2:
+        print(f"  (cascade pair skipped: fewer than 2 toxicity signals: {all_toxicity})")
         return
+    toxicity_names = [all_toxicity[0], all_toxicity[-1]]  # cheapest vs dearest
     pair_definitions = [
         definition.model_copy(update={"call_group": None})
         for definition in definitions
