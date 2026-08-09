@@ -34,11 +34,14 @@ classifiers = [
   "Typing :: Typed",
 ]
 
-# pydantic is the core's only runtime dependency — it validates the optimiser's input
-# contract. The `http` and `sentinel` extras are declared in the slices that give them
-# content (P12 and P2), not speculatively here.
+# Two runtime dependencies: pydantic validates the optimiser's input contract, and
+# numpy carries the search's vectorised evaluation hot path (domain/vectorised.py) —
+# the per-case pure path remains the semantic specification, pinned equal by the
+# parity tests. The `http` and `sentinel` extras are declared in the slices that give
+# them content (P12 and P2), not speculatively here.
 dependencies = [
   "pydantic>=2.7",
+  "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

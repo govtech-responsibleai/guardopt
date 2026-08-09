@@ -18,6 +18,8 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import product
 
+import numpy as np
+
 from guardopt.domain.candidates import (
     behaviourally_distinct_pairs,
     default_pair,
@@ -31,7 +33,6 @@ from guardopt.domain.inputs import GuardrailDefinition, OptimiserRequest
 from guardopt.domain.metrics import (
     BinaryOutcomeReport,
     ConfusionMatrix,
-    build_binary_report,
     f05,
     f1,
     f2,
@@ -39,25 +40,25 @@ from guardopt.domain.metrics import (
     precision,
     recall,
 )
-from guardopt.domain.metrics_intervention import (
-    InterventionReport,
-    build_intervention_report,
-)
+from guardopt.domain.metrics_intervention import InterventionReport
 from guardopt.domain.policy import GuardrailBinding, Policy, Stage
-from guardopt.domain.route import evaluate_staged_policy_on_case
-from guardopt.domain.route_cost import route_cost, route_latency_ms
+from guardopt.domain.route_cost import stage_cost, stage_latency_ms
 from guardopt.domain.selection import PROFILE_ORDER, PROFILE_SORT_KEYS
-from guardopt.domain.simulation import (
-    GuardrailThresholds,
-    PolicyCandidate,
-    evaluate_policy,
-)
+from guardopt.domain.simulation import GuardrailThresholds, PolicyCandidate
 from guardopt.domain.stage_plans import (
     check_combined_space,
     count_stage_plans,
     enumerate_stage_plans,
 )
 from guardopt.domain.types import SearchMethod
+from guardopt.domain.vectorised import (
+    CaseArrays,
+    binary_report_from_codes,
+    flat_outcome_codes,
+    intervention_report_from_codes,
+    signature_from_codes,
+    staged_outcome_codes,
+)
 
 
 class CandidateSpaceTooLargeError(RuntimeError):
@@ -291,6 +292,10 @@ class PolicyEvaluator:
         self._cache: dict[PolicyCandidate, EvaluatedPolicy] = {}
         self._mean_latency = mean_latency_by_guardrail(request)
         self._mean_cost = mean_cost_by_guardrail(request)
+        # The matrix never changes during a search, so it is lowered to arrays once and
+        # every candidate is a handful of vector comparisons against it. Parity with the
+        # per-case pure path is pinned by tests/domain/test_vectorised_parity.py.
+        self._arrays = CaseArrays.build(self._definitions, request.test_cases)
         self.cache_hits = 0
 
     @property
@@ -313,20 +318,19 @@ class PolicyEvaluator:
             self.cache_hits += 1
             return cached
 
-        evaluations = evaluate_policy(
-            self._definitions,
-            candidate,
-            self._request.test_cases,
-            self._request.config.treat_missing_as,
+        codes, excluded, errored_case = flat_outcome_codes(
+            self._arrays, self._definitions, candidate, self._request.config.treat_missing_as
         )
-        binary = build_binary_report(self._request.test_cases, evaluations)
+        binary = binary_report_from_codes(self._arrays, codes, excluded)
         cm = binary.confusion_matrix
 
         evaluated = EvaluatedPolicy(
             candidate=candidate,
             confusion_matrix=cm,
             binary=binary,
-            intervention=build_intervention_report(self._request.test_cases, evaluations),
+            intervention=intervention_report_from_codes(
+                self._arrays, codes, excluded, errored_case
+            ),
             precision=precision(cm),
             recall=recall(cm),
             f05=f05(cm),
@@ -334,9 +338,7 @@ class PolicyEvaluator:
             f2=f2(cm),
             estimated_latency_ms=self._latency_for(candidate),
             estimated_cost=self._cost_for(candidate),
-            outcome_signature=tuple(
-                "excluded" if e.outcome is None else e.outcome.value for e in evaluations
-            ),
+            outcome_signature=signature_from_codes(codes, excluded),
         )
         self._cache[candidate] = evaluated
         return evaluated
@@ -607,6 +609,7 @@ class StagedPolicyEvaluator:
         self._definitions = request.guardrail_by_name
         self._mean_latency = mean_latency_by_guardrail(request)
         self._mean_cost = mean_cost_by_guardrail(request)
+        self._arrays = CaseArrays.build(self._definitions, request.test_cases)
         self._cache: dict[Policy, EvaluatedPolicy] = {}
         self.cache_hits = 0
 
@@ -614,44 +617,55 @@ class StagedPolicyEvaluator:
     def evaluation_count(self) -> int:
         return len(self._cache)
 
+    def _mean_route_charge(
+        self, stages_run: np.ndarray, per_stage: list[float | None]
+    ) -> float | None:
+        """The mean charge over routes with at least one measured stage.
+
+        Matches `route_cost`/`route_latency_ms` case by case: a skipped stage costs
+        nothing, an unmeasured stage contributes nothing, and a route where NOTHING ran
+        with a measurement is absent from the mean rather than counted as free.
+        """
+        total = np.zeros(stages_run.shape[1], dtype=np.float64)
+        has_measure = np.zeros(stages_run.shape[1], dtype=bool)
+        for ran, charge in zip(stages_run, per_stage):
+            if charge is None:
+                continue
+            total += ran * charge
+            has_measure |= ran
+        if not has_measure.any():
+            return None
+        return float(total[has_measure].mean())
+
     def evaluate(self, policy: Policy) -> EvaluatedPolicy:
         cached = self._cache.get(policy)
         if cached is not None:
             self.cache_hits += 1
             return cached
 
-        evaluations = tuple(
-            evaluate_staged_policy_on_case(
-                self._definitions, policy, case, self._request.config.treat_missing_as
-            )
-            for case in self._request.test_cases
+        codes, excluded, errored_case, stages_run = staged_outcome_codes(
+            self._arrays, self._definitions, policy, self._request.config.treat_missing_as
         )
-        binary = build_binary_report(self._request.test_cases, evaluations)
+        binary = binary_report_from_codes(self._arrays, codes, excluded)
         cm = binary.confusion_matrix
 
         # A cascade's cost is per case: a request that exits early never pays for the
         # stages it skipped. Averaging the routes actually taken is the only number that
         # describes what this policy would have done.
-        latencies = [
-            latency
-            for evaluation in evaluations
-            if (
-                latency := route_latency_ms(
-                    policy, evaluation.stages_run, self._definitions, self._mean_latency
-                )
-            )
-            is not None
-        ]
-        costs = [
-            cost
-            for evaluation in evaluations
-            if (
-                cost := route_cost(
-                    policy, evaluation.stages_run, self._definitions, self._mean_cost
-                )
-            )
-            is not None
-        ]
+        estimated_latency = self._mean_route_charge(
+            stages_run,
+            [
+                stage_latency_ms(stage, self._definitions, self._mean_latency)
+                for stage in policy.stages
+            ],
+        )
+        estimated_cost = self._mean_route_charge(
+            stages_run,
+            [
+                stage_cost(stage, self._definitions, self._mean_cost)
+                for stage in policy.stages
+            ],
+        )
 
         evaluated = EvaluatedPolicy(
             candidate=PolicyCandidate.of(
@@ -663,17 +677,17 @@ class StagedPolicyEvaluator:
             ),
             confusion_matrix=cm,
             binary=binary,
-            intervention=build_intervention_report(self._request.test_cases, evaluations),
+            intervention=intervention_report_from_codes(
+                self._arrays, codes, excluded, errored_case
+            ),
             precision=precision(cm),
             recall=recall(cm),
             f05=f05(cm),
             f1=f1(cm),
             f2=f2(cm),
-            estimated_latency_ms=(sum(latencies) / len(latencies)) if latencies else None,
-            estimated_cost=(sum(costs) / len(costs)) if costs else None,
-            outcome_signature=tuple(
-                "excluded" if e.outcome is None else e.outcome.value for e in evaluations
-            ),
+            estimated_latency_ms=estimated_latency,
+            estimated_cost=estimated_cost,
+            outcome_signature=signature_from_codes(codes, excluded),
             policy=policy,
         )
         self._cache[policy] = evaluated
