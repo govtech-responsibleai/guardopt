@@ -1,13 +1,17 @@
 """Export a policy into a LiteLLM proxy: a CustomGuardrail wrapping this runtime.
 
-Verified against the LiteLLM docs (proxy/guardrails/quick_start and custom_guardrail):
-the proxy's `guardrails:` config lists entries whose `litellm_params.guardrail` may
-reference a local `[python_filename].[ClassName]`, and a `CustomGuardrail` subclass
-receives extra `litellm_params` keys through `**kwargs`. LiteLLM itself offers only
-lifecycle phases (pre/during/post call) — no ordering, no conditional stages — so a
-cascade is exported by compiling the WHOLE policy into one custom guardrail that runs
+Verified against the LiteLLM docs (proxy/guardrails/quick_start and custom_guardrail),
+and then against a LIVE proxy (litellm 1.96.0, 2026-08-10): the proxy's `guardrails:`
+config lists entries whose `litellm_params.guardrail` may reference a local
+`[python_filename].[ClassName]`, and a `CustomGuardrail` subclass receives extra
+`litellm_params` keys through `**kwargs`. The live run is what settled the block
+mechanism: raising `fastapi.HTTPException(status_code=400)` surfaces to the caller as a
+clean 400, where a plain exception became a 500. LiteLLM itself offers only lifecycle
+phases (pre/during/post call) — no ordering, no conditional stages — so a cascade is
+exported by compiling the WHOLE policy into one custom guardrail that runs
 `GuardrailRouter` internally: the deployed verdicts are the router's, which are provably
-the optimiser's, whatever the policy's shape.
+the optimiser's, whatever the policy's shape. `tests/test_litellm_live.py` re-verifies
+the interface against whatever LiteLLM version is installed.
 
 The emitted module embeds the policy JSON verbatim and the definitions as literals. The
 one thing it cannot embed is the user's scorers — `build_guards()` raises with
@@ -51,6 +55,12 @@ policy names. They are your services; no export can know how to call them.
 
 from litellm.integrations.custom_guardrail import CustomGuardrail
 
+try:
+    # The proxy always has fastapi; an HTTPException surfaces a block as a clean 400.
+    from fastapi import HTTPException
+except ImportError:  # outside the proxy a plain exception still blocks
+    HTTPException = None
+
 from guardopt import GuardrailDefinition, Policy, PolicyOutcome, ScoreDirection
 from guardopt.runtime.router import GuardrailRouter
 
@@ -88,12 +98,15 @@ class GuardoptGuardrail(CustomGuardrail):
         )
         decision = await self.router.run({{"text": text}})
         if decision.outcome is PolicyOutcome.FAIL:
-            # LiteLLM surfaces guardrail exceptions to the caller; adjust the type if
-            # your proxy version prefers HTTPException.
-            raise ValueError(
+            message = (
                 f"blocked by guardopt policy "
                 f"'{{decision.policy_name}}': {{decision.reason}}"
             )
+            # Verified against a live proxy: a plain exception surfaces as HTTP 500,
+            # an HTTPException as the 400 a blocked request deserves.
+            if HTTPException is not None:
+                raise HTTPException(status_code=400, detail={{"error": message}})
+            raise ValueError(message)
         return data
 '''
 
