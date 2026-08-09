@@ -142,6 +142,7 @@ Most of these exist because the opposite went wrong somewhere first.
 - [Optimising](docs/optimising.md) — the quickstart, preparing data, reading results
 - [Constraints](docs/constraints.md) — stating requirements, and ranking what qualifies
 - [Runtime](docs/runtime.md) — calling guardrails, and enforcing a policy or a cascade
+- [Integrations](docs/integrations.md) — deploy to LiteLLM, Guardrails AI or OpenAI Guardrails; import scores from DeepEval or TruLens
 - [Policy schema](docs/policy-schema.md) — the portable artifact, field by field
 - [Methodology](docs/methodology.md) — how the search works, and what it does not prove
 - [Migrating](docs/migrating.md) — from `guardrail-router`, with what you gain and lose

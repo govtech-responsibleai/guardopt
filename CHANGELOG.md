@@ -42,6 +42,16 @@ demanded.
 
 ### Added
 
+- **Integrations** (`guardopt.integrations`). Exporters that deploy a recommended
+  policy where guardrails already run: LiteLLM and Guardrails AI exports wrap the
+  policy in each target's custom-guardrail mechanism running guardopt's own router
+  (cascades and fail-closed semantics preserved as measured, since neither target
+  can express them natively); the OpenAI Guardrails export emits the pipeline
+  bundle with the loss stated loudly — the scorer changes, cascades are refused
+  rather than flattened. Importers turn DeepEval test runs and TruLens
+  records-and-feedback rows into a `ScoreMatrix`, with the direction convention
+  stated (never inferred) and unlabelled cases refused by name.
+
 - **Warning bands as the cascade's routing dimension**
   (`OptimiserConfig.search_stage_bands`, on by default with `search_stages`). Non-final
   stages search two-threshold bands: below the band exits early, past the blocking line

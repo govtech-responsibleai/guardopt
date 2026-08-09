@@ -44,6 +44,7 @@ nav:
   - Optimising: optimising.md
   - Constraints: constraints.md
   - Runtime: runtime.md
+  - Integrations: integrations.md
   - Policy schema: policy-schema.md
   - Methodology: methodology.md
   - Migrating from guardrail-router: migrating.md
