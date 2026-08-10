@@ -10,24 +10,22 @@
       
       
       
-        <link rel="canonical" href="https://govtech-responsibleai.github.io/guardopt/migrating/">
+        <link rel="canonical" href="https://govtech-responsibleai.github.io/guardopt/docs/sentinel/">
       
       
-        <link rel="prev" href="../methodology/">
+        <link rel="prev" href="../migrating/">
       
-      
-        <link rel="next" href="../sentinel/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="https://raw.githubusercontent.com/googlefonts/noto-emoji/main/svg/emoji_u1f6e1.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>Migrating from guardrail-router - guardopt</title>
+        <title>🛰️ Sentinel adapter - guardopt</title>
       
     
     
@@ -69,7 +67,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="deep-orange">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -78,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#migrating-from-guardrail-router" class="md-skip">
+        <a href="#sentinel-adapter" class="md-skip">
           Skip to content
         </a>
       
@@ -97,7 +95,7 @@
     <a href=".." title="guardopt" class="md-header__button md-logo" aria-label="guardopt" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 9a3 3 0 0 1 3 3 3 3 0 0 1-3 3 3 3 0 0 1-3-3 3 3 0 0 1 3-3m5.86 10.31C16.23 21.22 14.28 22.45 12 23c-2.56-.61-4.7-2.07-6.42-4.37C3.86 16.34 3 13.8 3 11V5l9-4 9 4v6c0 2.39-.64 4.61-1.92 6.67l-2.91-2.91c.52-.79.83-1.76.83-2.76a5 5 0 0 0-5-5 5 5 0 0 0-5 5 5 5 0 0 0 5 5c1 0 1.97-.31 2.76-.83z"/></svg>
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -114,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Migrating from guardrail-router
+              🛰️ Sentinel adapter
             
           </span>
         </div>
@@ -127,7 +125,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="deep-orange"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
@@ -137,7 +135,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="deep-orange"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
@@ -176,6 +174,8 @@
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
       </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
       
     </form>
     <div class="md-search__output">
@@ -233,7 +233,7 @@
     <a href=".." title="guardopt" class="md-nav__button md-logo" aria-label="guardopt" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 9a3 3 0 0 1 3 3 3 3 0 0 1-3 3 3 3 0 0 1-3-3 3 3 0 0 1 3-3m5.86 10.31C16.23 21.22 14.28 22.45 12 23c-2.56-.61-4.7-2.07-6.42-4.37C3.86 16.34 3 13.8 3 11V5l9-4 9 4v6c0 2.39-.64 4.61-1.92 6.67l-2.91-2.91c.52-.79.83-1.76.83-2.76a5 5 0 0 0-5-5 5 5 0 0 0-5 5 5 5 0 0 0 5 5c1 0 1.97-.31 2.76-.83z"/></svg>
 
     </a>
     guardopt
@@ -267,7 +267,7 @@
   <span class="md-ellipsis">
     
   
-    Home
+    🏠 Home
   
 
     
@@ -294,7 +294,7 @@
   <span class="md-ellipsis">
     
   
-    Concepts
+    🧭 Concepts
   
 
     
@@ -321,7 +321,7 @@
   <span class="md-ellipsis">
     
   
-    Optimising
+    🎯 Optimising
   
 
     
@@ -348,7 +348,7 @@
   <span class="md-ellipsis">
     
   
-    Constraints
+    📏 Constraints
   
 
     
@@ -375,7 +375,7 @@
   <span class="md-ellipsis">
     
   
-    Analysis
+    🔬 Analysis
   
 
     
@@ -402,7 +402,7 @@
   <span class="md-ellipsis">
     
   
-    Runtime
+    ⚡ Runtime
   
 
     
@@ -429,7 +429,7 @@
   <span class="md-ellipsis">
     
   
-    Guard adapters
+    🧱 Guard adapters
   
 
     
@@ -456,7 +456,7 @@
   <span class="md-ellipsis">
     
   
-    Retuning
+    🔁 Retuning
   
 
     
@@ -483,7 +483,7 @@
   <span class="md-ellipsis">
     
   
-    Integrations
+    🔌 Integrations
   
 
     
@@ -510,7 +510,7 @@
   <span class="md-ellipsis">
     
   
-    Policy schema
+    📜 Policy schema
   
 
     
@@ -537,7 +537,34 @@
   <span class="md-ellipsis">
     
   
-    Methodology
+    🧪 Methodology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migrating/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    🚚 Migrating from guardrail-router
   
 
     
@@ -573,7 +600,7 @@
   <span class="md-ellipsis">
     
   
-    Migrating from guardrail-router
+    🛰️ Sentinel adapter
   
 
     
@@ -591,7 +618,7 @@
   <span class="md-ellipsis">
     
   
-    Migrating from guardrail-router
+    🛰️ Sentinel adapter
   
 
     
@@ -617,10 +644,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#imports" class="md-nav__link">
+  <a href="#scoring" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Imports
+        Scoring
       
     </span>
   </a>
@@ -628,44 +655,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-three-renames-that-are-not-renames" class="md-nav__link">
+  <a href="#emitting-a-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The three renames that are not renames
+        Emitting a policy
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="The three renames that are not renames">
+    <nav class="md-nav" aria-label="Emitting a policy">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#uncertain-became-warning-and-error-is-new" class="md-nav__link">
+  <a href="#nothing-is-deployed-ever" class="md-nav__link">
     <span class="md-ellipsis">
       
-        UNCERTAIN became WARNING, and ERROR is new
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lowhigh-became-warningfailed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        low/high became warning/failed
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-optimiser-returns-three-policies-not-one" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The optimiser returns three policies, not one
+        Nothing is deployed. Ever.
       
     </span>
   </a>
@@ -678,10 +683,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#policy-files" class="md-nav__link">
+  <a href="#two-honest-limitations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Policy files
+        Two honest limitations
       
     </span>
   </a>
@@ -689,21 +694,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-you-gain" class="md-nav__link">
+  <a href="#bring-your-own-catalogue" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What you gain
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-you-lose" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What you lose
+        Bring your own catalogue
       
     </span>
   </a>
@@ -714,33 +708,6 @@
   
 </nav>
       
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../sentinel/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Sentinel adapter
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -772,10 +739,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#imports" class="md-nav__link">
+  <a href="#scoring" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Imports
+        Scoring
       
     </span>
   </a>
@@ -783,44 +750,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-three-renames-that-are-not-renames" class="md-nav__link">
+  <a href="#emitting-a-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The three renames that are not renames
+        Emitting a policy
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="The three renames that are not renames">
+    <nav class="md-nav" aria-label="Emitting a policy">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#uncertain-became-warning-and-error-is-new" class="md-nav__link">
+  <a href="#nothing-is-deployed-ever" class="md-nav__link">
     <span class="md-ellipsis">
       
-        UNCERTAIN became WARNING, and ERROR is new
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lowhigh-became-warningfailed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        low/high became warning/failed
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-optimiser-returns-three-policies-not-one" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The optimiser returns three policies, not one
+        Nothing is deployed. Ever.
       
     </span>
   </a>
@@ -833,10 +778,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#policy-files" class="md-nav__link">
+  <a href="#two-honest-limitations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Policy files
+        Two honest limitations
       
     </span>
   </a>
@@ -844,21 +789,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-you-gain" class="md-nav__link">
+  <a href="#bring-your-own-catalogue" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What you gain
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-you-lose" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What you lose
+        Bring your own catalogue
       
     </span>
   </a>
@@ -882,7 +816,7 @@
 
 
   
-    <a href="https://github.com/govtech-responsibleai/guardopt/edit/main/docs/migrating.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/govtech-responsibleai/guardopt/edit/main/docs/sentinel.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -890,140 +824,108 @@
   
 
 
-<h1 id="migrating-from-guardrail-router">Migrating from <code>guardrail-router</code><a class="headerlink" href="#migrating-from-guardrail-router" title="Permanent link">&para;</a></h1>
-<p><code>guardopt</code> 0.2 replaces the <code>guardrail-router</code> prototype. The rename is the small part; the
-engine underneath was merged with a separate optimiser, and most of the API moved.</p>
-<p>Nothing was dropped without a replacement. What follows is the whole map.</p>
-<h2 id="imports">Imports<a class="headerlink" href="#imports" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Was</th>
-<th>Now</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>guardrail_router</code></td>
-<td><code>guardopt</code></td>
-</tr>
-<tr>
-<td><code>GuardrailRouter</code></td>
-<td><code>guardopt.runtime.router.GuardrailRouter</code></td>
-</tr>
-<tr>
-<td><code>HttpJsonGuardrail</code></td>
-<td><code>guardopt.runtime.adapters.HttpJsonGuardrail</code></td>
-</tr>
-<tr>
-<td><code>HeuristicGuardrail</code></td>
-<td><code>guardopt.runtime.protocol.HeuristicGuardrail</code></td>
-</tr>
-<tr>
-<td><code>Guardrail</code></td>
-<td><code>guardopt.runtime.protocol.Guardrail</code></td>
-</tr>
-<tr>
-<td><code>load_jsonl</code></td>
-<td><code>guardopt.runtime.dataset.load_jsonl</code></td>
-</tr>
-<tr>
-<td><code>RoutePolicy</code></td>
-<td><code>guardopt.Policy</code> (schema v2 — see below)</td>
-</tr>
-<tr>
-<td><code>RouteStage</code></td>
-<td><code>guardopt.Stage</code></td>
-</tr>
-<tr>
-<td><code>RouteTrace</code></td>
-<td><code>guardopt.runtime.router.RouteTrace</code></td>
-</tr>
-<tr>
-<td><code>GuardrailRouteOptimizer</code></td>
-<td><code>guardopt.optimise</code> + <code>guardopt.domain.constraints</code></td>
-</tr>
-<tr>
-<td><code>OptimizationConstraints</code></td>
-<td><code>guardopt.domain.constraints.Constraints</code></td>
-</tr>
-<tr>
-<td><code>GuardrailDecision</code></td>
-<td><code>guardopt.PolicyOutcome</code></td>
-</tr>
-</tbody>
-</table>
-<p>The top level exports the <strong>pure</strong> path only. The runtime is imported explicitly, so
-someone analysing a spreadsheet of scores does not pull in an HTTP stack to do it.</p>
-<h2 id="the-three-renames-that-are-not-renames">The three renames that are not renames<a class="headerlink" href="#the-three-renames-that-are-not-renames" title="Permanent link">&para;</a></h2>
-<h3 id="uncertain-became-warning-and-error-is-new"><code>UNCERTAIN</code> became <code>WARNING</code>, and <code>ERROR</code> is new<a class="headerlink" href="#uncertain-became-warning-and-error-is-new" title="Permanent link">&para;</a></h3>
-<p>v1 had three outcomes: pass, uncertain, fail. There are still three at the policy level —
-<code>PASS</code>, <code>WARNING</code>, <code>FAIL</code> — but a <strong>guardrail</strong> now has a fourth, <code>ERROR</code>, for one that
-could not run.</p>
-<p>This matters more than it sounds. In v1 a transport failure became <code>UNCERTAIN</code>, which reads
-as "we checked and were unsure". An outage therefore looked like a stream of borderline
-requests. Now it is an error: it never passes, and it never permits an early exit.</p>
-<h3 id="lowhigh-became-warningfailed"><code>low</code>/<code>high</code> became <code>warning</code>/<code>failed</code><a class="headerlink" href="#lowhigh-became-warningfailed" title="Permanent link">&para;</a></h3>
-<p>Same three bands, clearer names, and now direction-aware. See below.</p>
-<h3 id="the-optimiser-returns-three-policies-not-one">The optimiser returns three policies, not one<a class="headerlink" href="#the-optimiser-returns-three-policies-not-one" title="Permanent link">&para;</a></h3>
-<p><code>GuardrailRouteOptimizer.fit()</code> returned a single best policy under a weighted objective.
-<code>optimise()</code> returns up to three — Minimal, Balanced, Strict — on the Pareto frontier, each
-with its metrics and a written explanation.</p>
-<p>If you genuinely want one, the old behaviour is <code>guardopt.domain.constraints</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guardopt.domain.constraints</span><span class="w"> </span><span class="kn">import</span> <span class="n">Constraints</span><span class="p">,</span> <span class="n">ObjectiveWeights</span><span class="p">,</span> <span class="n">best_by_objective</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">choice</span> <span class="o">=</span> <span class="n">best_by_objective</span><span class="p">(</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">policies</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">Constraints</span><span class="p">(</span><span class="n">min_recall</span><span class="o">=</span><span class="mf">0.98</span><span class="p">,</span> <span class="n">max_latency_ms</span><span class="o">=</span><span class="mf">250.0</span><span class="p">),</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">ObjectiveWeights</span><span class="p">(</span><span class="n">false_positive_weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">latency_weight</span><span class="o">=</span><span class="mf">0.001</span><span class="p">),</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">choice</span><span class="o">.</span><span class="n">policy</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="n">choice</span><span class="o">.</span><span class="n">relaxed</span>      <span class="c1"># True when nothing met the bar</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">choice</span><span class="o">.</span><span class="n">violations</span>   <span class="c1"># and what it missed</span>
+<h1 id="sentinel-adapter">🛰️ Sentinel adapter<a class="headerlink" href="#sentinel-adapter" title="Permanent link">&para;</a></h1>
+<p>An optional adapter for <a href="https://github.com/govtech-responsibleai">Sentinel</a>, a
+guardrails-as-a-service product. <strong>You can ignore this page entirely</strong> unless you use it —
+nothing in the optimiser depends on anything here, and a test enforces that.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>guardopt<span class="o">[</span>sentinel<span class="o">]</span>
 </code></pre></div>
-<p>Two behaviour changes worth knowing:</p>
-<ul>
-<li><strong>An unmeasured metric never satisfies a constraint.</strong> v1's feasibility check treated a
-  missing per-label recall as a failure but was looser elsewhere; this is now uniform.</li>
-<li><strong>The relaxed fallback ranks by how far short it falls</strong>, not by the objective. If the bar
-  cannot be met, the least-bad answer is the one that misses by least.</li>
-</ul>
-<h2 id="policy-files">Policy files<a class="headerlink" href="#policy-files" title="Permanent link">&para;</a></h2>
-<p>v1 files are readable, but <strong>not automatically</strong>, because v1 recorded no score direction:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guardopt.domain.migrate</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_v1</span>
+<div class="admonition note">
+<p class="admonition-title">The extra installs nothing today</p>
+<p>And that is stated rather than hidden. The adapter speaks HTTP through stdlib <code>urllib</code>
+and models payloads with pydantic, which the core already requires. The extra exists so
+<code>guardopt[sentinel]</code> is a stable thing to depend on: if the adapter later needs a real
+HTTP client, it lands there and your requirements do not change.</p>
+<p>What actually keeps the core generic is that nothing under <code>guardopt.domain</code> imports
+<code>guardopt.sentinel</code>.</p>
+</div>
+<h2 id="scoring">Scoring<a class="headerlink" href="#scoring" title="Permanent link">&para;</a></h2>
+<p>Turn text into the scores the optimiser needs:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guardopt.sentinel.scoring</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentinelScorer</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">policy</span> <span class="o">=</span> <span class="n">load_v1</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">text</span><span class="p">),</span> <span class="n">assume_higher_is_riskier</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">policy</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">&quot;policy.json&quot;</span><span class="p">)</span>   <span class="c1"># now v2</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">scorer</span> <span class="o">=</span> <span class="n">SentinelScorer</span><span class="p">(</span><span class="n">api_key</span><span class="o">=...</span><span class="p">,</span> <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://sentinel.example.com&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">results</span> <span class="o">=</span> <span class="n">scorer</span><span class="o">.</span><span class="n">score</span><span class="p">(</span><span class="s2">&quot;some user text&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;vendor-a/toxicity&quot;</span><span class="p">,</span> <span class="s2">&quot;vendor-b/prompt_attack&quot;</span><span class="p">])</span>
 </code></pre></div>
-<p>See <a href="../policy-schema/">Policy schema</a> for what it refuses to convert and why. The short
-version: a guardrail whose low scores are the risky ones cannot be converted at all, because
-v1's numbers are wrong for it rather than merely mislabelled.</p>
-<h2 id="what-you-gain">What you gain<a class="headerlink" href="#what-you-gain" title="Permanent link">&para;</a></h2>
+<p>Three behaviours worth knowing:</p>
 <ul>
-<li><strong>Score direction</strong>, stated per guardrail. v1 assumed higher-is-riskier globally.</li>
-<li><strong>Thresholds derived from your observed scores</strong> rather than a fixed <code>(0.1, 0.2, 0.3)</code>
-  grid, which was only ever right for normalised, uniformly-spread scores.</li>
-<li><strong>A first-class ERROR outcome</strong>, so an outage cannot read as clean traffic.</li>
-<li><strong>Candidate-space sizing</strong>, so an oversized search is refused before it hangs rather than
-  discovered by waiting.</li>
-<li><strong>Confusion-matrix metrics</strong> with the case IDs in every cell, plus a separate warning band.</li>
-<li><strong>Cost as well as latency</strong> — a parallel stage takes the slowest but pays for all of them,
-  which v1 did not distinguish.</li>
-<li><strong>Multi-label detectors</strong> as first-class signals, charged once per call rather than once
-  per label.</li>
+<li><strong>It refuses rather than guessing.</strong> No key, or no host, and it raises
+  <code>SentinelNotConfiguredError</code>. The host has no default, because defaulting a value that
+  decides <em>which environment you talk to</em> is how a development server ends up pointed at
+  production.</li>
+<li><strong>The key never leaks.</strong> Not into a repr, not into an exception, not into a transport
+  failure. Tests assert this on exactly those paths.</li>
+<li><strong>An unscored guardrail is never a pass.</strong> Sentinel can return HTTP 200 with a guardrail
+  in <code>errors</code> and no <code>results</code> row, or omit it entirely. Both become a
+  <code>GuardrailTestResult</code> carrying an error — never a clean score.</li>
 </ul>
-<h2 id="what-you-lose">What you lose<a class="headerlink" href="#what-you-lose" title="Permanent link">&para;</a></h2>
-<p>Stated plainly rather than left for you to discover:</p>
+<h2 id="emitting-a-policy">Emitting a policy<a class="headerlink" href="#emitting-a-policy" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guardopt.service</span><span class="w"> </span><span class="kn">import</span> <span class="n">recommend_policies</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">recommend_policies</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">system_name</span><span class="o">=</span><span class="s2">&quot;Support chat&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">for</span> <span class="n">recommendation</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">recommendations</span><span class="p">:</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="k">if</span> <span class="n">recommendation</span><span class="o">.</span><span class="n">can_be_created_in_sentinel</span><span class="p">:</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>        <span class="n">body</span> <span class="o">=</span> <span class="n">recommendation</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">model_dump</span><span class="p">()</span>
+</code></pre></div>
+<p>This is <code>optimise()</code> plus a mapping step; it recommends exactly what <code>optimise()</code> does.</p>
+<h3 id="nothing-is-deployed-ever">Nothing is deployed. Ever.<a class="headerlink" href="#nothing-is-deployed-ever" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Per-label thresholds inside one guardrail.</strong> v1's <code>guard_labels</code> block is gone. Fan the
-  guardrail out into per-label signals instead, which gets you the same control with
-  thresholds the optimiser can actually search.</li>
-<li><strong><code>RoutedDecision.labels</code>.</strong> Signals are named guardrails now, so the equivalent is the
-  per-guardrail outcomes on the decision.</li>
-<li><strong>The <code>schema_version</code> you were writing.</strong> v2 is a new identifier; v1 files keep meaning
-  what they meant.</li>
+<li>The client exposes <strong>no</strong> <code>create</code>, <code>update</code>, <code>delete</code> or <code>deploy</code> method. Not disabled,
+  not feature-flagged — <strong>absent</strong>. A method that does not exist cannot be called by
+  mistake.</li>
+<li>A test scans the entire package for the deploy endpoint and fails if it appears anywhere
+  outside a docstring.</li>
 </ul>
+<p><code>recommend_policies</code> returns bodies a human may choose to create. Creating one is your call,
+through your own tooling.</p>
+<h2 id="two-honest-limitations">Two honest limitations<a class="headerlink" href="#two-honest-limitations" title="Permanent link">&para;</a></h2>
+<p><strong>Not every policy can be expressed.</strong> Sentinel requires <code>warning &lt; failed</code>, so a
+<code>LOWER_IS_RISKIER</code> guardrail has no valid body. Rather than dropping the result or emitting
+something that would be rejected, the recommendation comes back <strong>measured but with no
+body</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">recommendation</span><span class="o">.</span><span class="n">policy</span>                    <span class="c1"># None</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">recommendation</span><span class="o">.</span><span class="n">not_expressible_reason</span>    <span class="c1"># why</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">recommendation</span><span class="o">.</span><span class="n">evaluated</span>                 <span class="c1"># still fully measured</span>
+</code></pre></div>
+<p>Show the metrics; suppress the "create" action. The measurement is real even when the API
+cannot store it.</p>
+<p><strong>Sometimes a flagging line is invented.</strong> Sentinel refuses to store a guardrail without
+one. If the optimiser chose to block without flagging, the adapter fits a band where <strong>no
+observed score reaches it</strong>, so nothing in your dataset flags because of it — and then says
+so:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">recommendation</span><span class="o">.</span><span class="n">guardrails_with_an_invented_warning_band</span>
+</code></pre></div>
+<p>The same disclosure is appended to <code>explanation.limitations</code>, so a caller rendering only
+the prose still sees it. A threshold on a policy that the optimiser did not choose is
+exactly the kind of thing that must not pass silently.</p>
+<h2 id="bring-your-own-catalogue">Bring your own catalogue<a class="headerlink" href="#bring-your-own-catalogue" title="Permanent link">&para;</a></h2>
+<p><code>guardopt</code> ships <strong>no</strong> guardrail catalogue. What a score means is a property of your
+deployment, not of this library: two installations of the same detector differ in version,
+calibration, and which direction means riskier.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guardopt.sentinel.catalogue</span><span class="w"> </span><span class="kn">import</span> <span class="n">GuardrailCatalogue</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">catalogue</span> <span class="o">=</span> <span class="n">GuardrailCatalogue</span><span class="p">(</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">entries</span><span class="o">=</span><span class="p">(</span><span class="n">GuardrailDefinition</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;vendor-a/toxicity&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">),),</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">provenance</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;vendor-a/toxicity&quot;</span><span class="p">:</span> <span class="s2">&quot;scored live against the vendor API, 2026-08-01&quot;</span><span class="p">},</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">exclusions</span><span class="o">=</span><span class="p">{</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>        <span class="s2">&quot;vendor-b/pii&quot;</span><span class="p">:</span> <span class="p">(</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>            <span class="s2">&quot;Not a scalar risk signal on raw prompts: it cannot tell a request for &quot;</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>            <span class="s2">&quot;someone else&#39;s ID from a user supplying their own. Both scored 1.0.&quot;</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>        <span class="p">),</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="p">},</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="p">)</span>
+</code></pre></div>
+<p>The type enforces what discipline otherwise would not:</p>
+<ul>
+<li>An entry with <strong>no provenance</strong> is rejected. A guessed guardrail name silently targets the
+  wrong guardrail.</li>
+<li>A guardrail cannot be <strong>both offered and excluded</strong> — which is what happens when someone
+  adds an exclusion and leaves the entry in place.</li>
+<li>An exclusion must carry <strong>the observation that caused it</strong>, so the same guardrail is not
+  re-tested and re-rejected in six months.</li>
+</ul>
+<p>Recording <em>why</em> you rejected something is the part everyone skips and everyone later wishes
+they had not.</p>
 
 
 
@@ -1053,6 +955,30 @@ v1's numbers are wrong for it rather than merely mislabelled.</p>
       </main>
       
         <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../migrating/" class="md-footer__link md-footer__link--prev" aria-label="Previous: 🚚 Migrating from guardrail-router">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                🚚 Migrating from guardrail-router
+              </div>
+            </div>
+          </a>
+        
+        
+      </nav>
+    
   
   <div class="md-footer-meta md-typeset">
     <div class="md-footer-meta__inner md-grid">
@@ -1091,11 +1017,13 @@ v1's numbers are wrong for it rather than merely mislabelled.</p>
       <div class="md-dialog__inner md-typeset"></div>
     </div>
     
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
     
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.instant.progress", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.footer", "content.code.copy", "content.action.edit", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
