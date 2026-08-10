@@ -126,10 +126,15 @@ Worst-case (p = 0.5) width, so the answer is a planning ceiling.
 
 ## How slow is it, really? The latency distribution
 
-A policy's latency is not a number, it is a distribution — and a cascade moves its two
-ends in opposite directions. Escalating only the uncertain band pulls the **mean** down;
-the escalated requests wait for the cheap stage *and* the dear one, so the **tail rises**,
-sometimes above judge-everything.
+A policy's latency is not a number, it is a distribution — and a cascade reshapes the
+whole thing. Escalating only the uncertain band answers most requests with the cheap
+stage alone, but every escalated request waits for the cheap stage *and* the dear one.
+
+Which effect wins is **a property of your traffic, not of cascades**, and our benchmarks
+went both ways: where almost nothing escalated the cascade was faster across the entire
+distribution (mean −47%, p95 −65%), and where most traffic escalated it was slower
+throughout (mean +52%, p95 +40%) for a 5% cost saving. This is exactly why the numbers
+are measured rather than assumed.
 
 Every evaluated policy therefore carries the whole shape — `estimated_latency_ms` (the
 mean), `p50_latency_ms`, `p95_latency_ms`, `p99_latency_ms`, and `timed_case_count`, the
