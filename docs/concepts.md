@@ -1,4 +1,4 @@
-# Concepts
+# 🧭 Concepts
 
 Six ideas. Everything else in `guardopt` is built from them.
 

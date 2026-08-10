@@ -1,4 +1,4 @@
-# Sentinel adapter
+# 🛰️ Sentinel adapter
 
 An optional adapter for [Sentinel](https://github.com/govtech-responsibleai), a
 guardrails-as-a-service product. **You can ignore this page entirely** unless you use it —

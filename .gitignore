@@ -11,6 +11,7 @@ build/
 
 # MkDocs build output
 site/
+.site-root/
 
 # local 3.11 check venv
 .venv311/

@@ -1,4 +1,4 @@
-# Constraints
+# 📏 Constraints
 
 The Pareto frontier answers *which policies are defensible*. It deliberately does not
 answer *which one should I ship*, because that depends on what a mistake costs you.

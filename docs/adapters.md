@@ -1,4 +1,4 @@
-# Guard adapters
+# 🧱 Guard adapters
 
 The optimiser is only as interesting as the fleet you give it. Three LLM judges are
 three correlated views of one construct — when they agree, one is nearly as good as

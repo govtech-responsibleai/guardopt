@@ -24,8 +24,16 @@ docs:
 docs-serve:
 	$(PY)/mkdocs serve
 
-# Deploys the MkDocs site to the gh-pages branch. Manual on purpose: the Actions
-# workflow that did this on every push to main was removed, so publishing the site is
-# now a deliberate act rather than a side effect.
+# Deploys the site to the gh-pages branch. Manual on purpose: the Actions workflow
+# that did this on every push to main was removed, so publishing is a deliberate act.
+# Layout: web/ is the landing page at the site root; the MkDocs build lands under
+# /docs — which is why site_url in mkdocs.yml carries the /docs/ suffix.
 docs-deploy:
-	$(PY)/mkdocs gh-deploy --force
+	$(PY)/mkdocs build
+	rm -rf .site-root
+	mkdir .site-root
+	cp -R web/. .site-root/
+	mkdir .site-root/docs
+	cp -R site/. .site-root/docs/
+	$(PY)/ghp-import -n -p -f -m "deploy site (landing + docs)" .site-root
+	rm -rf .site-root

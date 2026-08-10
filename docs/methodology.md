@@ -1,4 +1,4 @@
-# Methodology
+# 🧪 Methodology
 
 How the search works, and — more importantly — what it does not prove.
 

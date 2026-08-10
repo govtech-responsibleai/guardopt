@@ -1,4 +1,4 @@
-# Integrations
+# 🔌 Integrations
 
 The optimiser chooses the config; these exporters put it where guardrails already run,
 and the importers pull in scores that other tools already produced.

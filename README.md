@@ -1,6 +1,17 @@
-# guardopt
+<div align="center">
+
+# 🛡️ guardopt
 
 **Find the guardrail policy that blocks what matters and lets the rest through.**
+
+[![tests](https://img.shields.io/badge/tests-852%20passing-2ea44f)](https://github.com/govtech-responsibleai/guardopt)
+[![python](https://img.shields.io/badge/python-3.11%2B-3776ab?logo=python&logoColor=white)](https://github.com/govtech-responsibleai/guardopt/blob/main/pyproject.toml)
+[![licence](https://img.shields.io/badge/licence-MIT-blue)](https://github.com/govtech-responsibleai/guardopt/blob/main/LICENSE)
+[![docs](https://img.shields.io/badge/docs-mkdocs--material-526cfe)](https://govtech-responsibleai.github.io/guardopt/docs/)
+
+*your labelled data → guardopt → a policy you can defend*
+
+</div>
 
 `guardopt` is not another guardrail framework. It assumes you already have guardrails — PII
 detectors, prompt-injection classifiers, toxicity checks, grounding checks, your own
@@ -11,7 +22,7 @@ to set them.
 > optimiser and a runtime router; `0.2.0.dev0` is the first version under the `guardopt`
 > name. Treat every import path as provisional until `0.2.0`.
 
-## The problem
+## 🎯 The problem
 
 Someone picks `0.5`. It is a round number and it is the default in the example. Then either
 the support queue fills with people blocked for nothing, or something gets through that
@@ -21,7 +32,7 @@ The threshold is not the hard part. The hard part is that moving it **trades one
 error for another**, and without measuring you only ever see the consequences — weeks
 later, one complaint at a time.
 
-## What you get
+## 📦 What you get
 
 Give it scores your guardrails already produced on cases you have labelled. It searches
 thresholds and on/off decisions, and returns three defensible options:
@@ -56,7 +67,7 @@ Scores already in a spreadsheet? Skip Python entirely:
 guardopt optimise scores.csv --guardrails guardrails.json --out report.md --html report.html
 ```
 
-## Install
+## ⚙️ Install
 
 ```bash
 pip install guardopt
@@ -64,7 +75,7 @@ pip install guardopt
 
 Core has two dependencies: `pydantic` (the input contract) and `numpy` (the search's vectorised evaluation — 19–40× over the pure path, which remains in the codebase as the parity-tested specification). Optional extras: `guardopt[sentinel]`.
 
-## Quickstart
+## 🚀 Quickstart
 
 ```python
 from guardopt.domain.inputs import (
@@ -108,7 +119,7 @@ Run the full worked example:
 python examples/quickstart.py
 ```
 
-## What it is careful about
+## 🔬 What it is careful about
 
 Most of these exist because the opposite went wrong somewhere first.
 
@@ -141,28 +152,31 @@ Most of these exist because the opposite went wrong somewhere first.
   a drift monitor compares live rates against the simulation, and shadow mode measures a
   candidate policy on live traffic without enforcing it.
 
-## Documentation
+## 📖 Documentation
 
-📖 **[Full documentation](https://govtech-responsibleai.github.io/guardopt/)**
+📖 **[Full documentation](https://govtech-responsibleai.github.io/guardopt/docs/)**
 
-- [Concepts](docs/concepts.md) — guardrails, thresholds, the three bands, policies, profiles
-- [Optimising](docs/optimising.md) — the quickstart, preparing data, reading results
-- [Constraints](docs/constraints.md) — stating requirements, and ranking what qualifies
-- [Runtime](docs/runtime.md) — calling guardrails, and enforcing a policy or a cascade
-- [Integrations](docs/integrations.md) — deploy to LiteLLM, Guardrails AI or OpenAI Guardrails; import scores from DeepEval or TruLens
-- [Policy schema](docs/policy-schema.md) — the portable artifact, field by field
-- [Methodology](docs/methodology.md) — how the search works, and what it does not prove
-- [Migrating](docs/migrating.md) — from `guardrail-router`, with what you gain and lose
-- [Sentinel](docs/sentinel.md) — the optional adapter
+- 🧭 [Concepts](docs/concepts.md) — guardrails, thresholds, the three bands, policies, profiles
+- 🎯 [Optimising](docs/optimising.md) — the quickstart, preparing data, reading results
+- 📏 [Constraints](docs/constraints.md) — stating requirements, and ranking what qualifies
+- 🔬 [Analysis](docs/analysis.md) — the diff, slices, calibration, labelling, the risk bound
+- ⚡ [Runtime](docs/runtime.md) — calling guardrails, and enforcing a policy or a cascade
+- 🧱 [Guard adapters](docs/adapters.md) — the heterogeneous fleet: PII screen, keywords, classifiers, Perspective
+- 🔁 [Retuning](docs/retune.md) — drift → fresh labels → retune → shadow → promote
+- 🔌 [Integrations](docs/integrations.md) — deploy to LiteLLM, Guardrails AI or OpenAI Guardrails; import scores from DeepEval or TruLens
+- 📜 [Policy schema](docs/policy-schema.md) — the portable artifact, field by field
+- 🧪 [Methodology](docs/methodology.md) — how the search works, and what it does not prove
+- 🚚 [Migrating](docs/migrating.md) — from `guardrail-router`, with what you gain and lose
+- 🛰️ [Sentinel](docs/sentinel.md) — the optional adapter
 
-### Cascades
+### ⚡ Cascades
 
 A policy can be a single parallel stage, or an ordered cascade where cheap checks settle
 most requests and expensive ones run only when they cannot. The optimiser will **design**
 one (`OptimiserConfig(search_stages=True)`), the runtime **executes** it, and both reach the
 identical verdicts — asserted by a test across seven score shapes, not merely intended.
 
-## Why not an existing tool
+## 🤔 Why not an existing tool
 
 Adjacent tools mostly **run** or **test** guardrails rather than optimise how they are
 configured:
@@ -181,7 +195,7 @@ The gap this fills:
 > Given any number of guardrails and labelled evaluation traffic, find the configuration
 > that minimises false positives subject to a safety constraint — and show your working.
 
-## Development
+## 🛠️ Development
 
 ```bash
 pip install -e ".[dev]"
@@ -191,6 +205,6 @@ make check        # ruff + mypy + pytest — what CI used to be
 There is no CI runner; `make check` before pushing is the contract. The docs site
 deploys manually with `make docs-deploy`.
 
-## Licence
+## 📄 Licence
 
 MIT.

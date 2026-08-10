@@ -1,6 +1,6 @@
-# guardopt
+# 🛡️ guardopt
 
-Find the guardrail policy that blocks what matters and lets the rest through.
+**Find the guardrail policy that blocks what matters and lets the rest through.**
 
 `guardopt` is **not** another guardrail framework. It assumes you already have
 guardrails — PII detectors, prompt-injection classifiers, toxicity checks, grounding
@@ -11,7 +11,7 @@ traffic and tell you where to set them.
 your labelled data  ->  guardopt  ->  a policy you can defend
 ```
 
-## The problem it solves
+## 🎯 The problem it solves
 
 Someone picks 0.5. It is a round number, it is the default in the example, and nobody has
 a better idea. Then either the support queue fills with people who were blocked for
@@ -35,7 +35,7 @@ then hands back three defensible options:
 Each comes with a confusion matrix, the metrics behind it, and a written explanation of
 what it would have done to your data.
 
-## What it is careful about
+## 🔬 What it is careful about
 
 These are the design commitments, and most of them exist because the opposite went wrong
 somewhere first:
@@ -53,16 +53,77 @@ somewhere first:
 - **Undefined is `None`, never `0.0`.** A precision that could not be computed is not a
   precision of zero.
 
-## Where to go next
+## 🧭 Where to go next
 
-- **[Concepts](concepts.md)** — guardrails, thresholds, the three bands, what a policy is.
-- **[Optimising](optimising.md)** — the quickstart, your data, and reading the results.
-- **[Runtime](runtime.md)** — calling guardrails and enforcing a policy in your backend.
-- **[Policy schema](policy-schema.md)** — the portable artifact, field by field.
-- **[Methodology](methodology.md)** — how the search works and what it does not prove.
-- **[Sentinel](sentinel.md)** — the optional adapter.
+<div class="grid cards" markdown>
 
-## Status
+-   🚀 **Get started**
+
+    ---
+
+    Scores in, three defensible policies out — the five-minute path.
+
+    [→ Optimising](optimising.md)
+
+-   🧠 **Understand the model**
+
+    ---
+
+    Guardrails, thresholds, warning bands, cascades, and what a policy *is*.
+
+    [→ Concepts](concepts.md)
+
+-   🔬 **Interrogate a result**
+
+    ---
+
+    What changes if we ship it? Which slice fails? What should we label next?
+
+    [→ Analysis](analysis.md)
+
+-   ⚡ **Run it in production**
+
+    ---
+
+    The fail-closed router, shadow mode, drift monitoring, hot reload.
+
+    [→ Runtime](runtime.md)
+
+-   🧱 **Build the fleet**
+
+    ---
+
+    Free PII screens, keyword lists, local classifiers, Perspective, HTTP services.
+
+    [→ Guard adapters](adapters.md)
+
+-   🔁 **Keep it tuned**
+
+    ---
+
+    Drift → fresh labels → retune → shadow → promote, every step measured.
+
+    [→ Retuning](retune.md)
+
+-   🔌 **Meet your stack**
+
+    ---
+
+    Deploy to LiteLLM, Guardrails AI, OpenAI Guardrails; import DeepEval and TruLens scores.
+
+    [→ Integrations](integrations.md)
+
+-   📜 **Commit the artifact**
+
+    ---
+
+    The policy file your review process can read, diff, and roll back.
+
+    [→ Policy schema](policy-schema.md)
+
+</div>
+
+## 🚧 Status
 
 **Pre-release, and the API is not stable.** This package is mid-merge between an offline
 optimiser and a runtime router; `0.2.0.dev0` is the first version under the `guardopt`

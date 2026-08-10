@@ -1,4 +1,4 @@
-# Analysis
+# 🔬 Analysis
 
 The recommendation answers "which policy". These tools answer the questions that come
 right after: *what changes if we ship it, where does it fail, can the scores be

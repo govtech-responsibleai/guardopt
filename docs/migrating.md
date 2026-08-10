@@ -1,4 +1,4 @@
-# Migrating from `guardrail-router`
+# 🚚 Migrating from `guardrail-router`
 
 `guardopt` 0.2 replaces the `guardrail-router` prototype. The rename is the small part; the
 engine underneath was merged with a separate optimiser, and most of the API moved.

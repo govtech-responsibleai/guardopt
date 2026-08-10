@@ -1,4 +1,4 @@
-# Retuning
+# 🔁 Retuning
 
 Thresholds are fitted to the traffic that produced them, and traffic moves. The runtime
 already carries the pieces that notice — this page is the loop that closes them:

@@ -1,4 +1,4 @@
-# Policy schema
+# 📜 Policy schema
 
 A policy is a JSON file. It is the thing you commit, review in a pull request, and load in
 production — deliberately, so that changing what your guardrails do is a reviewable change
