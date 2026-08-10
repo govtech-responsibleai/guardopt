@@ -82,15 +82,16 @@ def _summary_table(recommendations: tuple[ProfileRecommendation, ...]) -> str:
 
 
 def _frontier_chart(result: OptimisationResult) -> str:
-    """Cost-vs-F1 scatter of the whole frontier, the profile picks ringed.
+    """Cost-effectiveness-vs-F1 scatter of the whole frontier, the profile picks ringed.
 
-    Cost effectiveness would need a division by zero-able costs; raw cost with "left is
-    cheaper" labelling keeps every measured point plottable.
+    The x axis is requests per dollar, so both axes read the same way: up and right is
+    better. Policies with a zero or unmeasured cost cannot be placed on it and are
+    dropped from the chart (never plotted at a fabricated position).
     """
-    points: list[tuple[float, float, int]] = []  # (cost, f1, id of the evaluated)
+    points: list[tuple[float, float, int]] = []  # (requests per $, f1, id)
     for policy in result.frontier:
-        if policy.estimated_cost is not None and policy.f1 is not None:
-            points.append((policy.estimated_cost, policy.f1, id(policy)))
+        if policy.estimated_cost and policy.f1 is not None:
+            points.append((1.0 / policy.estimated_cost, policy.f1, id(policy)))
     if len(points) < 2:
         return (
             "<p class='meta'>No trade-off chart: fewer than two frontier policies "
@@ -116,7 +117,7 @@ def _frontier_chart(result: OptimisationResult) -> str:
         f'stroke="#c6cecb"/>',
         f'<line x1="{pad}" y1="{height - pad}" x2="{pad}" y2="{pad}" stroke="#c6cecb"/>',
         f'<text x="{width / 2}" y="{height - 8}" text-anchor="middle" font-size="12" '
-        f'fill="#5d6b66">cost per request (left = cheaper)</text>',
+        f'fill="#5d6b66">cost effectiveness (requests per dollar) — right is better</text>',
         f'<text x="14" y="{height / 2}" text-anchor="middle" font-size="12" '
         f'fill="#5d6b66" transform="rotate(-90 14 {height / 2})">F1</text>',
     ]
@@ -130,9 +131,9 @@ def _frontier_chart(result: OptimisationResult) -> str:
             )
     for recommendation in result.recommendations:
         evaluated = recommendation.evaluated
-        if evaluated.estimated_cost is None or evaluated.f1 is None:
+        if not evaluated.estimated_cost or evaluated.f1 is None:
             continue
-        x, y = x_of(evaluated.estimated_cost), y_of(evaluated.f1)
+        x, y = x_of(1.0 / evaluated.estimated_cost), y_of(evaluated.f1)
         shapes.append(
             f'<text x="{x + 13:.1f}" y="{y - 8:.1f}" font-size="12" fill="#1d2a26">'
             f"{_esc(recommendation.profile.value.capitalize())}</text>"
@@ -140,7 +141,7 @@ def _frontier_chart(result: OptimisationResult) -> str:
 
     return (
         f'<svg viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="Pareto frontier: cost per request against F1">'
+        f'aria-label="Pareto frontier: cost effectiveness against F1 — up and right is better">'
         + "".join(shapes)
         + "</svg>"
         + f"<p class='meta'>{len(points)} frontier policies with measured cost; "
