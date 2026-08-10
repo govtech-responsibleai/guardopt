@@ -1,127 +1,90 @@
-from __future__ import annotations
+"""End to end: call guardrails over labelled traffic, then optimise on what they scored.
 
-import json
-from pathlib import Path
+This is the full loop — `load_jsonl` -> `materialise` -> `optimise`. It exists to show the
+**wiring**, not to produce a good policy.
+
+**The policies it recommends are not a good illustration, on purpose.** The guardrails here
+are regexes, so they score near-binary: a pattern matches or it does not. Real detectors
+return a graded score, and it is that gradation the optimiser has thresholds to search. With
+a coarse signal there is barely a trade-off to divide into profiles, so the three come out
+lopsided — and on a small dataset the Balanced profile can even land below Minimal on
+recall, since the profile invariants constrain Minimal against Strict but leave Balanced
+free.
+
+For a realistic illustration of what the output should look like, run
+`examples/quickstart.py`, which supplies graded scores directly. That is also the common
+case: most teams have an evaluation set with scores in it long before they want this wired
+into a backend.
+
+    python examples/demo.py
+"""
+
 import sys
+from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from guardrail_router import (  # noqa: E402
-    GuardrailRouteOptimizer,
-    HeuristicGuardrail,
-    OptimizationConstraints,
-    RoutePolicy,
-    evaluate_policy,
-    load_jsonl,
-)
+from guardopt import GuardrailDefinition, ScoreDirection, optimise  # noqa: E402
+from guardopt.runtime.dataset import load_jsonl  # noqa: E402
+from guardopt.runtime.materialise import materialise_sync  # noqa: E402
+from guardopt.runtime.protocol import HeuristicGuardrail  # noqa: E402
 
+HIGHER = ScoreDirection.HIGHER_IS_RISKIER
 
-def build_demo_guards() -> list[HeuristicGuardrail]:
-    return [
-        HeuristicGuardrail(
-            name="pii_regex",
-            label_patterns={
-                "pii": [
-                    (r"\b[STFG]\d{7}[A-Z]\b", 0.98),
-                    (r"\b[689]\d{7}\b", 0.85),
-                ]
-            },
-            base_latency_ms=4,
-        ),
-        HeuristicGuardrail(
-            name="prompt_injection_light",
-            label_patterns={
-                "prompt_injection": [
-                    (r"ignore previous instructions", 0.92),
-                    (r"system prompt", 0.75),
-                    (r"developer message", 0.72),
-                ],
-                "jailbreak": [
-                    (r"\bDAN\b", 0.82),
-                    (r"bypass all policy", 0.88),
-                ],
-            },
-            base_latency_ms=12,
-        ),
-        HeuristicGuardrail(
-            name="abuse_light",
-            label_patterns={
-                "abuse": [
-                    (r"\bthreaten\b", 0.82),
-                    (r"\buseless\b", 0.45),
-                ]
-            },
-            base_latency_ms=9,
-        ),
-        HeuristicGuardrail(
-            name="deep_context_guard",
-            label_patterns={
-                "prompt_injection": [
-                    (r"reveal your system prompt", 0.96),
-                    (r"hidden developer message", 0.94),
-                ],
-                "cyber_abuse": [
-                    (r"hack the government portal", 0.95),
-                ],
-                "jailbreak": [
-                    (r"do anything now", 0.9),
-                ],
-                "abuse": [
-                    (r"threaten the officer", 0.93),
-                ],
-            },
-            base_latency_ms=85,
-        ),
-    ]
+# Stand-ins for real detectors. A regex is not a guardrail — it is enough to show the
+# shape, and the optimiser cannot tell the difference because it only ever sees scores.
+GUARDS = [
+    HeuristicGuardrail(
+        name="pii",
+        label_patterns={"pii": [(r"\b[A-Z]{2}\d{7}[A-Z]\b", 0.98), (r"\b555 ?\d{4}\b", 0.85)]},
+        base_latency_ms=4,
+    ),
+    HeuristicGuardrail(
+        name="injection",
+        label_patterns={
+            "injection": [
+                (r"ignore (all )?previous instructions", 0.95),
+                (r"system override", 0.9),
+                (r"disregard your guidelines", 0.9),
+            ]
+        },
+        base_latency_ms=12,
+    ),
+]
+
+DEFINITIONS = [
+    GuardrailDefinition(
+        name=guard.name, score_direction=HIGHER, minimum_score=0.0, maximum_score=1.0
+    )
+    for guard in GUARDS
+]
 
 
 def main() -> None:
-    records = load_jsonl(ROOT / "examples" / "citizen_chatbot_eval.jsonl")
-    guards = build_demo_guards()
+    records = load_jsonl(Path(__file__).parent / "citizen_chatbot_eval.jsonl")
+    print(f"loaded {len(records)} labelled records")
 
-    run_all_policy = RoutePolicy.from_order(
-        name="run_all_baseline",
-        guards=tuple(guard.name for guard in guards),
-        low_threshold=0.2,
-        high_threshold=0.8,
-        allow_after=len(guards),
-    )
-    baseline = evaluate_policy(records=records, guards=guards, policy=run_all_policy)
+    matrix = materialise_sync(records, GUARDS, DEFINITIONS)
+    print(f"scored {len(matrix.cases)} cases against {len(matrix.guardrails)} guardrails")
+    print()
 
-    optimizer = GuardrailRouteOptimizer()
-    result = optimizer.fit(
-        records=records,
-        guards=guards,
-        constraints=OptimizationConstraints(
-            min_recall=1.0,
-            false_positive_weight=2.0,
-            latency_weight=0.003,
-            uncertain_weight=0.15,
-        ),
-    )
+    result = optimise(matrix)
+    print(f"search method: {result.search_method.value}")
+    print(f"policies on the frontier: {result.pareto_candidate_count}")
+    print()
 
-    print("Baseline report:")
-    print(json.dumps(baseline.to_dict(), indent=2))
-    print()
-    print("Optimized policy:")
-    print(json.dumps(result.best_policy.to_dict(), indent=2))
-    print()
-    print("Optimized report:")
-    print(json.dumps(result.best_report.to_dict(), indent=2))
-    print()
-    print(
-        json.dumps(
-            {
-                "candidates_evaluated": result.candidates_evaluated,
-                "feasible_candidates": result.feasible_candidates,
-                "diagnostics": result.diagnostics,
-            },
-            indent=2,
-        )
-    )
+    for recommendation in result.recommendations:
+        evaluated = recommendation.evaluated
+        print(f"--- {recommendation.profile.value.upper()} ---")
+        print(f"  recall     {evaluated.recall}")
+        print(f"  precision  {evaluated.precision}")
+        for name, thresholds in evaluated.candidate.entries:
+            print(f"  {name}: block at {thresholds.failed}, warn at {thresholds.warning}")
+        print()
+
+    for warning in result.warnings:
+        print(f"warning: {warning}")
 
 
 if __name__ == "__main__":
     main()
-

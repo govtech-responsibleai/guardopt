@@ -3,20 +3,117 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "guardrail-router"
-version = "0.1.0"
-description = "Lightweight routing and optimization for cascaded LLM guardrails."
+name = "guardopt"
+version = "0.2.0.dev0"
+description = "Find the guardrail policy that blocks what matters and lets the rest through."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
-  { name = "Guardrail Router Contributors" }
+  { name = "guardopt contributors" }
 ]
 license = { text = "MIT" }
-dependencies = []
+keywords = [
+  "guardrails",
+  "llm",
+  "llm-safety",
+  "content-moderation",
+  "threshold-optimization",
+  "policy",
+  "evaluation",
+  "routing",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
+
+# Two runtime dependencies: pydantic validates the optimiser's input contract, and
+# numpy carries the search's vectorised evaluation hot path (domain/vectorised.py) —
+# the per-case pure path remains the semantic specification, pinned equal by the
+# parity tests. The `http` and `sentinel` extras are declared in the slices that give
+# them content (P12 and P2), not speculatively here.
+dependencies = [
+  "pydantic>=2.7",
+  "numpy>=1.26",
+]
 
 [project.optional-dependencies]
-dev = []
+# Declared, and deliberately empty. The Sentinel adapter speaks HTTP through stdlib
+# `urllib` and models its payloads with pydantic, which the core already requires — so
+# there is genuinely nothing extra to install today. The extra exists so that
+# `guardopt[sentinel]` is a stable thing to depend on: if the adapter later needs a real
+# HTTP client, it lands here and existing callers pick it up without editing their
+# requirements. `guardopt.sentinel` is importable either way; what keeps the core generic
+# is that nothing under `guardopt.domain` imports it, which a test asserts.
+sentinel = []
+
+docs = [
+  # Capped below 2.0 deliberately. The Material maintainers warn that MkDocs 2.0 removes
+  # the plugin system and rewrites theming with no migration path, which would break the
+  # theme this site is built on. An unpinned `>=1.6` would pick that up silently on the
+  # next CI run and take the docs down.
+  "mkdocs>=1.6,<2",
+  "mkdocs-material>=9.5,<10",
+]
+
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+  "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/govtech-responsibleai/guardopt"
+Repository = "https://github.com/govtech-responsibleai/guardopt"
+Issues = "https://github.com/govtech-responsibleai/guardopt/issues"
+
+[project.scripts]
+guardopt = "guardopt.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# The PEP 561 marker. Without it, the "Typing :: Typed" classifier above is a false
+# claim: mypy and pyright treat the package as untyped and discard every annotation.
+guardopt = ["py.typed"]
+
+[tool.ruff]
+src = ["src", "tests"]
+line-length = 100
+
+[tool.ruff.lint]
+# Pinned to wrong-code rules: pyflakes and the pycodestyle error classes. Deliberately
+# not the whole catalogue, and deliberately no formatter run — the codebase has a settled
+# style (multi-line f-strings, documented `except Exception` containment), and a
+# churn-everything pass would bury real history under whitespace. Widen rule by rule if
+# a rule earns its keep.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+# Lenient on purpose: the value right now is catching wrong names and wrong shapes, not
+# proving strictness. Tighten module by module later if it earns its keep.
+python_version = "3.11"
+files = ["src/guardopt"]
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+# `src` on the path means the suite runs from a clean checkout with no install step,
+# which is what CI does and what a contributor does on their first clone.
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+  # Carried over from the Litmus backend, where it separated unit tests from ones needing
+  # a database. Every test here is a unit test, so the mark currently selects everything;
+  # it is registered rather than stripped so the ported files stay verbatim and reviewable.
+  "unit: a test with no database, network or external service",
+]

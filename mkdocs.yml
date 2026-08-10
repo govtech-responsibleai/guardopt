@@ -1,0 +1,87 @@
+site_name: guardopt
+site_description: Find the guardrail policy that blocks what matters and lets the rest through.
+site_url: https://govtech-responsibleai.github.io/guardopt/docs/
+repo_url: https://github.com/govtech-responsibleai/guardopt
+repo_name: guardopt
+edit_uri: edit/main/docs/
+
+# The site is built from docs/ — the same files that are readable in the repo. One set,
+# not two that drift.
+docs_dir: docs
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/shield-search
+  favicon: https://raw.githubusercontent.com/googlefonts/noto-emoji/main/svg/emoji_u1f6e1.svg
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - 🏠 Home: index.md
+  - 🧭 Concepts: concepts.md
+  - 🎯 Optimising: optimising.md
+  - 📏 Constraints: constraints.md
+  - 🔬 Analysis: analysis.md
+  - ⚡ Runtime: runtime.md
+  - 🧱 Guard adapters: adapters.md
+  - 🔁 Retuning: retune.md
+  - 🔌 Integrations: integrations.md
+  - 📜 Policy schema: policy-schema.md
+  - 🧪 Methodology: methodology.md
+  - 🚚 Migrating from guardrail-router: migrating.md
+  - 🛰️ Sentinel adapter: sentinel.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - tables
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+# Build in strict mode: a broken internal link fails CI rather than shipping a 404. The
+# docs are the first thing a stranger reads, and a dead link in them is a claim that
+# nobody checked.
+strict: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/govtech-responsibleai/guardopt

@@ -1,0 +1,338 @@
+"""The NumPy fast path for candidate evaluation — same verdicts, arrays instead of loops.
+
+The search evaluates tens of thousands of candidates against the same fixed dataset, and
+the pure path pays Python-level function calls per case per guardrail per candidate. The
+matrix never changes during a search, so it is lowered ONCE into arrays here, and each
+candidate's verdicts become a handful of vector comparisons.
+
+**This module must not have opinions.** Every semantic rule it applies — closed-at-the-
+riskier-edge thresholds, error-never-passes, FAIL > WARNING > ERROR > PASS, the staged
+walk's exit and uncertainty rules — is defined in `simulation.py` and `route.py`, and this
+file only restates them in array form. A parity test
+(`tests/domain/test_vectorised_parity.py`) holds the two implementations equal on
+randomised inputs; if they ever disagree, the pure path is the specification and this one
+is the bug.
+
+Outcome codes: PASS=0, WARNING=1, FAIL=2. Exclusion (`MissingResultPolicy.EXCLUDE_CASE`)
+is a separate mask, because excluded is an absence of a verdict, not a fourth verdict.
+"""
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+
+import numpy as np
+
+from guardopt.domain.inputs import GuardrailDefinition, TestCaseGuardrailResults
+from guardopt.domain.metrics import BinaryOutcomeReport, ConfusionMatrix
+from guardopt.domain.metrics_intervention import InterventionReport
+from guardopt.domain.policy import Policy
+from guardopt.domain.simulation import (
+    GuardrailThresholds,
+    PolicyCandidate,
+    validate_thresholds,
+)
+from guardopt.domain.types import (
+    ExpectedAction,
+    MissingResultPolicy,
+    ScoreDirection,
+    StageCondition,
+)
+
+__all__ = [
+    "CaseArrays",
+    "binary_report_from_codes",
+    "flat_outcome_codes",
+    "intervention_report_from_codes",
+    "signature_from_codes",
+    "staged_outcome_codes",
+]
+
+PASS, WARNING, FAIL = np.uint8(0), np.uint8(1), np.uint8(2)
+
+#: Index 3 is the excluded slot — see `signature_from_codes`.
+_OUTCOME_NAMES = np.array(["pass", "warning", "fail", "excluded"], dtype=object)
+
+
+@dataclass(frozen=True, slots=True)
+class CaseArrays:
+    """The score matrix, lowered to arrays once per search.
+
+    Per guardrail, three aligned views of the same column:
+
+      `scores`   the recorded score, with 0.0 in slots that hold no score — the value is
+                 meaningless there and every consumer must mask with `valid` first
+      `valid`    a real score was recorded (not missing, not errored)
+      `missing`  no row was recorded at all — distinct from an errored row, because
+                 `EXCLUDE_CASE` drops gaps without discarding genuine guardrail errors
+
+    An errored guardrail is `~valid & ~missing`. Duplicate rows for one name cannot
+    occur — `TestCaseGuardrailResults` refuses them at validation — but the build guards
+    first-row-wins anyway so this module never depends on that being enforced elsewhere.
+    """
+
+    case_ids: np.ndarray
+    unsafe: np.ndarray
+    scores: dict[str, np.ndarray]
+    valid: dict[str, np.ndarray]
+    missing: dict[str, np.ndarray]
+
+    @property
+    def case_count(self) -> int:
+        return len(self.case_ids)
+
+    @classmethod
+    def build(
+        cls,
+        definitions: Mapping[str, GuardrailDefinition],
+        cases: Sequence[TestCaseGuardrailResults],
+    ) -> "CaseArrays":
+        n = len(cases)
+        case_ids = np.array([case.test_case_id for case in cases], dtype=object)
+        unsafe = np.array(
+            [case.expected_action is ExpectedAction.BLOCK for case in cases], dtype=bool
+        )
+
+        scores = {name: np.zeros(n, dtype=np.float64) for name in definitions}
+        valid = {name: np.zeros(n, dtype=bool) for name in definitions}
+        missing = {name: np.ones(n, dtype=bool) for name in definitions}
+
+        for row, case in enumerate(cases):
+            seen: set[str] = set()
+            for result in case.guardrail_results:
+                name = result.guardrail_name
+                if name in seen or name not in scores:
+                    continue  # first row for a name wins, exactly as `result_for` does
+                seen.add(name)
+                missing[name][row] = False
+                if result.error is None and result.score is not None:
+                    valid[name][row] = True
+                    scores[name][row] = result.score
+
+        return cls(
+            case_ids=case_ids, unsafe=unsafe, scores=scores, valid=valid, missing=missing
+        )
+
+
+def _guardrail_masks(
+    arrays: CaseArrays,
+    definition: GuardrailDefinition,
+    thresholds: GuardrailThresholds,
+) -> tuple[np.ndarray, np.ndarray]:
+    """(fail, warning) masks for one guardrail — `simulation.evaluate_guardrail` in
+    array form: both bands closed at the riskier edge, mirrored for LOWER_IS_RISKIER,
+    and nothing fires where no score exists."""
+    validate_thresholds(definition, thresholds)
+
+    scores = arrays.scores[definition.name]
+    valid = arrays.valid[definition.name]
+
+    if definition.score_direction is ScoreDirection.HIGHER_IS_RISKIER:
+        fail = valid & (scores >= thresholds.failed)
+        warn = (
+            valid & ~fail & (scores >= thresholds.warning)
+            if thresholds.warning is not None
+            else np.zeros(arrays.case_count, dtype=bool)
+        )
+    else:
+        fail = valid & (scores <= thresholds.failed)
+        warn = (
+            valid & ~fail & (scores <= thresholds.warning)
+            if thresholds.warning is not None
+            else np.zeros(arrays.case_count, dtype=bool)
+        )
+    return fail, warn
+
+
+def flat_outcome_codes(
+    arrays: CaseArrays,
+    definitions: Mapping[str, GuardrailDefinition],
+    candidate: PolicyCandidate,
+    missing_policy: MissingResultPolicy,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One flat candidate over every case: (codes, excluded, errored_case).
+
+    `errored_case` is "at least one enabled guardrail returned ERROR here" — what the
+    intervention report counts. Aggregation is `simulation._aggregate`: any FAIL wins,
+    else any WARNING or ERROR warns, else PASS.
+    """
+    n = arrays.case_count
+    fail_any = np.zeros(n, dtype=bool)
+    unclean_any = np.zeros(n, dtype=bool)
+    missing_any = np.zeros(n, dtype=bool)
+    errored_any = np.zeros(n, dtype=bool)
+
+    for name, thresholds in candidate.entries:
+        fail, warn = _guardrail_masks(arrays, definitions[name], thresholds)
+        errored = ~arrays.valid[name]  # missing or errored: both are ERROR outcomes
+        fail_any |= fail
+        unclean_any |= warn | errored
+        errored_any |= errored
+        missing_any |= arrays.missing[name]
+
+    codes = np.where(fail_any, FAIL, np.where(unclean_any, WARNING, PASS)).astype(np.uint8)
+    excluded = (
+        missing_any
+        if missing_policy is MissingResultPolicy.EXCLUDE_CASE
+        else np.zeros(n, dtype=bool)
+    )
+    return codes, excluded, errored_any
+
+
+def staged_outcome_codes(
+    arrays: CaseArrays,
+    definitions: Mapping[str, GuardrailDefinition],
+    policy: Policy,
+    missing_policy: MissingResultPolicy,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """One staged policy over every case: (codes, excluded, errored_case, stages_run).
+
+    `stages_run` is (stage_count, case_count) — which stages each case actually paid
+    for; the route cost is charged from it. The walk is `route.
+    evaluate_staged_policy_on_case` in array form: a FAIL stops the route, a WARNING
+    marks it uncertain, only a genuinely clean `resolves_uncertainty` stage clears the
+    mark, and `allow_exit` releases only cases that are not uncertain — so an errored
+    stage can never grant the exit.
+    """
+    n = arrays.case_count
+    decided = np.zeros(n, dtype=bool)
+    final = np.zeros(n, dtype=np.uint8)
+    uncertain = np.zeros(n, dtype=bool)
+    missing_any = np.zeros(n, dtype=bool)
+    errored_any = np.zeros(n, dtype=bool)
+    stages_run = np.zeros((len(policy.stages), n), dtype=bool)
+
+    for index, stage in enumerate(policy.stages):
+        runs = ~decided
+        if stage.condition is StageCondition.ON_UNCERTAIN:
+            runs = runs & uncertain
+        stages_run[index] = runs
+
+        stage_fail = np.zeros(n, dtype=bool)
+        stage_unclean = np.zeros(n, dtype=bool)
+        stage_missing = np.zeros(n, dtype=bool)
+        stage_errored = np.zeros(n, dtype=bool)
+        for binding in stage.guardrails:
+            fail, warn = _guardrail_masks(
+                arrays, definitions[binding.name], binding.thresholds()
+            )
+            errored = ~arrays.valid[binding.name]
+            stage_fail |= fail
+            stage_unclean |= warn | errored
+            stage_errored |= errored
+            stage_missing |= arrays.missing[binding.name]
+
+        missing_any |= runs & stage_missing
+        errored_any |= runs & stage_errored
+
+        verdict_fail = runs & stage_fail
+        verdict_warn = runs & ~stage_fail & stage_unclean
+        verdict_pass = runs & ~stage_fail & ~stage_unclean
+
+        final = np.where(verdict_fail, FAIL, final).astype(np.uint8)
+        decided |= verdict_fail
+
+        uncertain = uncertain | verdict_warn
+        if stage.resolves_uncertainty:
+            # Only a genuinely clean stage settles the question — the pure walk's
+            # `elif`: a warning verdict never reaches the resolve branch.
+            uncertain = uncertain & ~verdict_pass
+
+        if stage.allow_exit:
+            exits = runs & ~verdict_fail & ~uncertain
+            final = np.where(exits, PASS, final).astype(np.uint8)
+            decided |= exits
+
+    residual = ~decided
+    final = np.where(residual, np.where(uncertain, WARNING, PASS), final).astype(np.uint8)
+
+    excluded = (
+        missing_any
+        if missing_policy is MissingResultPolicy.EXCLUDE_CASE
+        else np.zeros(n, dtype=bool)
+    )
+    return final, excluded, errored_any, stages_run
+
+
+def binary_report_from_codes(
+    arrays: CaseArrays, codes: np.ndarray, excluded: np.ndarray
+) -> BinaryOutcomeReport:
+    """`metrics.build_binary_report`, from codes. Positive class = BLOCK; predicted
+    positive = policy FAIL and nothing else — a WARNING is a predicted negative."""
+    scored = ~excluded
+    blocked = scored & (codes == FAIL)
+    unsafe = arrays.unsafe
+
+    tp = blocked & unsafe
+    fp = blocked & ~unsafe
+    fn = scored & ~blocked & unsafe
+    tn = scored & ~blocked & ~unsafe
+
+    ids = arrays.case_ids
+    return BinaryOutcomeReport(
+        confusion_matrix=ConfusionMatrix(
+            true_positives=int(tp.sum()),
+            false_positives=int(fp.sum()),
+            true_negatives=int(tn.sum()),
+            false_negatives=int(fn.sum()),
+        ),
+        true_positive_test_case_ids=tuple(ids[tp]),
+        false_positive_test_case_ids=tuple(ids[fp]),
+        true_negative_test_case_ids=tuple(ids[tn]),
+        false_negative_test_case_ids=tuple(ids[fn]),
+        excluded_test_case_ids=tuple(ids[excluded]),
+    )
+
+
+def _ratio(numerator: int, denominator: int) -> float | None:
+    """`None` on a zero denominator — the metric is unmeasurable, not zero."""
+    if denominator == 0:
+        return None
+    return numerator / denominator
+
+
+def intervention_report_from_codes(
+    arrays: CaseArrays,
+    codes: np.ndarray,
+    excluded: np.ndarray,
+    errored_case: np.ndarray,
+) -> InterventionReport:
+    """`metrics_intervention.build_intervention_report`, from codes."""
+    scored = ~excluded
+    unsafe = arrays.unsafe & scored
+    safe = ~arrays.unsafe & scored
+
+    blocked = scored & (codes == FAIL)
+    warned = scored & (codes == WARNING)
+    passed = scored & (codes == PASS)
+    errored = scored & errored_case
+
+    scored_count = int(scored.sum())
+    unsafe_count = int(unsafe.sum())
+    safe_count = int(safe.sum())
+    unsafe_blocked = int((blocked & unsafe).sum())
+    unsafe_warned = int((warned & unsafe).sum())
+    safe_blocked = int((blocked & safe).sum())
+    safe_warned = int((warned & safe).sum())
+
+    ids = arrays.case_ids
+    return InterventionReport(
+        scored_case_count=scored_count,
+        excluded_case_count=arrays.case_count - scored_count,
+        block_rate=_ratio(int(blocked.sum()), scored_count),
+        warning_rate=_ratio(int(warned.sum()), scored_count),
+        error_rate=_ratio(int(errored.sum()), scored_count),
+        safe_case_pass_rate=_ratio(int((passed & safe).sum()), safe_count),
+        unsafe_warning_coverage=_ratio(unsafe_warned, unsafe_count - unsafe_blocked),
+        safe_warning_rate=_ratio(safe_warned, safe_count - safe_blocked),
+        total_unsafe_detection_coverage=_ratio(unsafe_blocked + unsafe_warned, unsafe_count),
+        total_safe_intervention_rate=_ratio(safe_blocked + safe_warned, safe_count),
+        warned_unsafe_test_case_ids=tuple(ids[warned & unsafe]),
+        warned_safe_test_case_ids=tuple(ids[warned & safe]),
+        errored_test_case_ids=tuple(ids[errored]),
+    )
+
+
+def signature_from_codes(codes: np.ndarray, excluded: np.ndarray) -> tuple[str, ...]:
+    """The per-case verdict string tuple `selection.deduplicate_by_behaviour` keys on."""
+    merged = np.where(excluded, np.uint8(3), codes)
+    return tuple(_OUTCOME_NAMES[merged])
