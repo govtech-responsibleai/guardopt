@@ -12,6 +12,8 @@ Three artifacts per scored dataset, because they serve three readers:
 """
 
 import json
+import os
+from collections.abc import Sequence
 from pathlib import Path
 
 from guardopt.domain.inputs import (
@@ -21,7 +23,77 @@ from guardopt.domain.inputs import (
 )
 from guardopt.domain.types import ExpectedAction
 
-__all__ = ["read_raw_jsonl", "write_artifacts"]
+__all__ = [
+    "append_raw_jsonl",
+    "raw_path_for",
+    "read_raw_jsonl",
+    "scored_case_ids",
+    "write_artifacts",
+]
+
+
+def raw_path_for(stem: Path) -> Path:
+    """The append-only ledger for a run. Concatenation, not `with_suffix`: a stem like
+    `toxicchat.s0.n2000` would otherwise lose its `.n2000`."""
+    return stem.parent / f"{stem.name}.raw.jsonl"
+
+
+def _case_payload(case: TestCaseGuardrailResults) -> dict:
+    return {
+        "id": case.test_case_id,
+        "expected_action": case.expected_action.value,
+        "results": [
+            {
+                "guardrail_name": result.guardrail_name,
+                "score": result.score,
+                "error": result.error,
+                "latency_ms": result.latency_ms,
+                "cost": result.cost,
+            }
+            for result in case.guardrail_results
+        ],
+    }
+
+
+def append_raw_jsonl(stem: Path, cases: Sequence[TestCaseGuardrailResults]) -> Path:
+    """Append scored cases to the ledger, flushed to disk before returning.
+
+    **This is what makes a multi-hour scoring run survivable.** Writing everything at the
+    end means an expired token at hour three throws away three hours of paid calls; a
+    JSONL that grows as the run proceeds means a restart re-reads what is already there
+    and only pays for what is missing. `fsync` because "written" must mean "on the disk",
+    not "in the page cache of a process that is about to be killed".
+    """
+    path = raw_path_for(stem)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for case in cases:
+            handle.write(json.dumps(_case_payload(case), ensure_ascii=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return path
+
+
+def scored_case_ids(stem: Path) -> set[str]:
+    """Which cases the ledger already holds — the resume point.
+
+    A truncated final line (killed mid-write) is dropped rather than crashing the
+    restart: that case simply gets scored again, which costs one call and is the
+    cheapest possible recovery.
+    """
+    path = raw_path_for(stem)
+    if not path.exists():
+        return set()
+    done: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            done.add(json.loads(line)["id"])
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return done
 
 
 def write_artifacts(
@@ -33,29 +105,10 @@ def write_artifacts(
     stem.parent.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
 
-    raw_path = stem.parent / f"{stem.name}.raw.jsonl"
+    raw_path = raw_path_for(stem)
     with raw_path.open("w", encoding="utf-8") as handle:
         for case in cases:
-            handle.write(
-                json.dumps(
-                    {
-                        "id": case.test_case_id,
-                        "expected_action": case.expected_action.value,
-                        "results": [
-                            {
-                                "guardrail_name": result.guardrail_name,
-                                "score": result.score,
-                                "error": result.error,
-                                "latency_ms": result.latency_ms,
-                                "cost": result.cost,
-                            }
-                            for result in case.guardrail_results
-                        ],
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+            handle.write(json.dumps(_case_payload(case), ensure_ascii=False) + "\n")
     written.append(raw_path)
 
     names = [definition.name for definition in definitions]

@@ -12,10 +12,19 @@ about in-flight requests: one record x three judges = three).
 Spend is stated before it happens: the run prints the case count, the fleet, and an
 estimated ceiling from the price table, and `--yes` is required to skip the prompt —
 a scoring run is money, and money is not spent by surprise.
+
+**Runs are resumable, and that is what makes a multi-hour grid affordable.** Scoring
+proceeds in chunks; each chunk is appended to `<stem>.raw.jsonl` and fsynced before the
+next begins. Re-running the same command reads that ledger, skips the cases already in
+it, and pays only for what is missing — so an expired token, a 429 storm or a closed
+laptop at hour three costs one chunk, not the whole run. Progress reports spend as it
+accrues from MEASURED per-call costs rather than the estimate, and `--max-spend` stops
+the run at a real ceiling instead of after the money is gone.
 """
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from guardopt.domain.fanout import signal_name
@@ -85,6 +94,24 @@ def main(argv: list[str] | None = None) -> int:
         "gateway doc caps ~5, so 2 is the sane ceiling for a two-judge fleet",
     )
     parser.add_argument("--env-file", default=".env", help="where the keys live (never printed)")
+    parser.add_argument(
+        "--chunk",
+        type=int,
+        default=25,
+        help="cases scored between ledger writes; a crash costs at most one chunk",
+    )
+    parser.add_argument(
+        "--max-spend",
+        type=float,
+        default=None,
+        metavar="USD",
+        help="stop once MEASURED spend reaches this, leaving the ledger resumable",
+    )
+    parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="ignore the existing ledger and score every case again (pays twice)",
+    )
     args = parser.parse_args(argv)
 
     load_env_file(args.env_file)
@@ -139,44 +166,98 @@ def main(argv: list[str] | None = None) -> int:
         print(f"score: {error}", file=sys.stderr)
         return 2
 
-    ceiling = _estimated_ceiling_usd(models, len(records))
-    print(
-        f"About to score {len(records)} cases x {len(models)} judges "
-        f"({len(records) * len(models)} calls), estimated ceiling ~US${ceiling:.2f} "
-        f"(priced models only).",
-        file=sys.stderr,
+    from experiments.matrixio import (
+        append_raw_jsonl,
+        raw_path_for,
+        read_raw_jsonl,
+        scored_case_ids,
+        write_artifacts,
     )
-    if not args.yes:
-        answer = input("Proceed? [y/N] ").strip().lower()
-        if answer != "y":
-            print("score: aborted before any call was made.", file=sys.stderr)
-            return 1
-
-    guards = build_fleet(models, gateway)
-    definitions = _definitions_for(models)
-
-    def progress(done: int, total: int) -> None:
-        if done % 10 == 0 or done == total:
-            print(f"  scored {done}/{total}", file=sys.stderr)
-
-    matrix = materialise_sync(
-        records,
-        guards,
-        definitions,
-        max_concurrent_records=args.concurrency,
-        on_progress=progress,
-    )
-
-    from experiments.matrixio import write_artifacts
 
     stem = RESULTS_DIR / f"{args.dataset}.s{args.seed}.n{len(records)}"
-    written = write_artifacts(stem, list(matrix.cases), definitions)
-    for path in written:
+    ledger = raw_path_for(stem)
+    if args.restart and ledger.exists():
+        ledger.unlink()
+        print(f"score: --restart removed {ledger.name}", file=sys.stderr)
+
+    already = scored_case_ids(stem)
+    pending = [record for record in records if record.record_id not in already]
+    if already:
+        print(
+            f"score: resuming — {len(already)} of {len(records)} cases already in "
+            f"{ledger.name}; {len(pending)} left to score.",
+            file=sys.stderr,
+        )
+
+    definitions = _definitions_for(models)
+
+    if pending:
+        ceiling = _estimated_ceiling_usd(models, len(pending))
+        print(
+            f"About to score {len(pending)} cases x {len(models)} judges "
+            f"({len(pending) * len(models)} calls), estimated ceiling ~US${ceiling:.2f} "
+            f"(priced models only).",
+            file=sys.stderr,
+        )
+        if not args.yes:
+            answer = input("Proceed? [y/N] ").strip().lower()
+            if answer != "y":
+                print("score: aborted before any call was made.", file=sys.stderr)
+                return 1
+
+        guards = build_fleet(models, gateway)
+        started = time.monotonic()
+        spent = 0.0
+        scored = 0
+
+        for offset in range(0, len(pending), args.chunk):
+            chunk = pending[offset : offset + args.chunk]
+            matrix = materialise_sync(
+                chunk, guards, definitions, max_concurrent_records=args.concurrency
+            )
+            cases = list(matrix.cases)
+            # Ledger first, counters second: a crash between the two costs a duplicate
+            # progress line, never a paid-for case that vanished.
+            append_raw_jsonl(stem, cases)
+
+            scored += len(cases)
+            spent += sum(
+                result.cost or 0.0
+                for case in cases
+                for result in case.guardrail_results
+            )
+            elapsed = time.monotonic() - started
+            rate = scored / elapsed if elapsed > 0 else 0.0
+            remaining = (len(pending) - scored) / rate if rate > 0 else 0.0
+            print(
+                f"  {scored}/{len(pending)} scored · US${spent:.3f} measured · "
+                f"{rate * 60:.0f} cases/min · ~{remaining / 60:.0f} min left",
+                file=sys.stderr,
+            )
+
+            if args.max_spend is not None and spent >= args.max_spend:
+                print(
+                    f"score: measured spend US${spent:.3f} reached the "
+                    f"US${args.max_spend:.2f} ceiling — stopping. The ledger holds "
+                    f"everything paid for; rerun the same command to continue.",
+                    file=sys.stderr,
+                )
+                return 0
+    else:
+        print(
+            "score: nothing left to score; rebuilding artifacts from the ledger.",
+            file=sys.stderr,
+        )
+
+    # The ledger is the source of truth: the CSV and the guardrails JSON are views of
+    # it, rebuilt from everything on disk rather than from this process's slice.
+    cases = read_raw_jsonl(ledger)
+    for path in write_artifacts(stem, cases, definitions):
         print(f"wrote {path}", file=sys.stderr)
 
     errored = sum(
         1
-        for case in matrix.cases
+        for case in cases
         for result in case.guardrail_results
         if result.error is not None
     )
