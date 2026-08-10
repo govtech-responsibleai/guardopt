@@ -58,6 +58,24 @@ def _definitions_for(models: list[str]) -> list[GuardrailDefinition]:
     ]
 
 
+def _measured_cost(case) -> float:
+    """What one scored case actually cost, charged per CALL, not per signal.
+
+    Each judge call answers three signals, and every signal row carries that call's
+    cost — so summing the rows bills one call three times. Signals sharing a call group
+    collapse to one charge, slowest... dearest wins within the group, exactly as
+    `fanout.latency_by_call_group` does for time. Getting this wrong made a run look
+    3x more expensive than it was, which would trip a spend ceiling two thirds early.
+    """
+    charges: dict[str, float] = {}
+    for result in case.guardrail_results:
+        if result.cost is None:
+            continue
+        group = result.guardrail_name.rsplit(":", 1)[0]
+        charges[group] = max(charges.get(group, result.cost), result.cost)
+    return sum(charges.values())
+
+
 def _estimated_ceiling_usd(models: list[str], case_count: int) -> float:
     total = 0.0
     for model in models:
@@ -221,11 +239,7 @@ def main(argv: list[str] | None = None) -> int:
             append_raw_jsonl(stem, cases)
 
             scored += len(cases)
-            spent += sum(
-                result.cost or 0.0
-                for case in cases
-                for result in case.guardrail_results
-            )
+            spent += sum(_measured_cost(case) for case in cases)
             elapsed = time.monotonic() - started
             rate = scored / elapsed if elapsed > 0 else 0.0
             remaining = (len(pending) - scored) / rate if rate > 0 else 0.0
