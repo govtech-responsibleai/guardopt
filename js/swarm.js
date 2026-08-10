@@ -1,11 +1,14 @@
-// A1 — the swarm. Requests as particles; the policy as geometry.
+// The particle engine, twice: an ambient field behind the hero copy, and the full
+// simulation lab in its own section — requests as particles, the policy as geometry.
 //
-// Every particle carries a cheap-screen score (its vertical lane) and a deep-judge
-// score. In cascade mode the screen's two draggable thresholds split the flow three
-// ways at gate 1: confident-risky bursts, confident-clean exits, and only the amber
-// corridor between them travels on to pay for the judge at gate 2. In "status quo"
-// mode there is no screen: everything pays for the judge. The odometers price both,
-// live, from the actual routing counts — not from a script.
+// Every particle carries a screen score (its vertical lane) and a judge score. In
+// cascade mode the screen's two draggable thresholds split the flow three ways at
+// gate 1: confident-risky bursts, confident-clean exits, and only the amber corridor
+// between them travels on to pay for the judge at gate 2. Everything the meters say —
+// cost, latency, escalation share — is computed from the actual routing counts and the
+// lab's own parameter sliders, not from a script. Escalated particles slow down in the
+// corridor in proportion to the judge's latency, so the latency cost is visible in the
+// motion itself.
 
 import { mulberry32, gaussian, clamp, money, PRICES, el } from "./util.js";
 
@@ -31,87 +34,199 @@ void main() {
   gl_FragColor = vec4(v_color.rgb, v_color.a * soft);
 }`;
 
-// Traffic presets: the distributions ARE the story. Easy traffic separates cleanly
-// (the UnSmile-like case: almost nothing escalates, the bill collapses); adversarial
-// traffic overlaps (the ToxicChat-like case: the judge must run, and the honest
-// number for the saving is small).
-const TRAFFIC = {
-  default: { safe: [0.28, 0.13], unsafe: [0.74, 0.13], band: [0.48, 0.72] },
-  easy: { safe: [0.2, 0.08], unsafe: [0.85, 0.07], band: [0.45, 0.65] },
-  adversarial: { safe: [0.42, 0.16], unsafe: [0.6, 0.16], band: [0.3, 0.82] },
-};
-
 const UNSAFE_SHARE = 0.25;
 const DEEP_THRESHOLD = 0.5;
-
-// states
 const FLOW = 0, ESCALATED = 1, CLEARED = 2, BURSTING = 3;
 
-export function initSwarm(reducedMotion) {
-  const canvas = document.getElementById("swarm-canvas");
-  const overlay = document.getElementById("swarm-overlay");
-  const gl = canvas.getContext("webgl", { antialias: false, alpha: true, premultipliedAlpha: false });
-  if (!gl) {
-    canvas.style.display = "none";
-    overlay.style.display = "none";
-    document.getElementById("swarm-fallback").style.display = "block";
-    return;
-  }
+// Scenarios spell out the regimes the experiments found. Separability drives how far
+// apart the safe and risky score distributions sit on the cheap screen.
+export const SCENARIOS = {
+  typical: {
+    label: "Typical traffic",
+    description: "Safe and risky mostly separate, with a real overlap in the middle. "
+      + "A modest uncertain band escalates; most of the bill disappears.",
+    separability: 0.55, band: [0.48, 0.72],
+  },
+  easy: {
+    label: "Easy traffic (UnSmile-like)",
+    description: "Cleanly separable — the screen is nearly always sure. Almost nothing "
+      + "escalates, and the saving approaches the 98% we measured at matched accuracy.",
+    separability: 0.95, band: [0.45, 0.65],
+  },
+  adversarial: {
+    label: "Adversarial (ToxicChat-like)",
+    description: "Heavy overlap — the screen genuinely cannot tell. Most traffic "
+      + "escalates, and the honest saving is small. Cascades are not magic; this is "
+      + "the regime where the judge must simply run.",
+    separability: 0.15, band: [0.30, 0.82],
+  },
+};
 
-  // ── GL setup ────────────────────────────────────────────
-  const program = buildProgram(gl);
+function buildGL(canvas) {
+  const gl = canvas.getContext("webgl", { antialias: false, alpha: true, premultipliedAlpha: false });
+  if (!gl) return null;
+  const compile = (type, source) => {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      throw new Error(gl.getShaderInfoLog(shader) || "shader compile failed");
+    }
+    return shader;
+  };
+  const program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAG));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error(gl.getProgramInfoLog(program) || "program link failed");
+  }
   gl.useProgram(program);
   const uResolution = gl.getUniformLocation(program, "u_resolution");
-  const buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  const STRIDE = 7; // x y r g b a size
-  const aPos = gl.getAttribLocation(program, "a_pos");
-  const aColor = gl.getAttribLocation(program, "a_color");
-  const aSize = gl.getAttribLocation(program, "a_size");
-  gl.enableVertexAttribArray(aPos);
-  gl.enableVertexAttribArray(aColor);
-  gl.enableVertexAttribArray(aSize);
-  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, STRIDE * 4, 0);
-  gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, STRIDE * 4, 2 * 4);
-  gl.vertexAttribPointer(aSize, 1, gl.FLOAT, false, STRIDE * 4, 6 * 4);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  const STRIDE = 7;
+  for (const [name, size, offset] of [["a_pos", 2, 0], ["a_color", 4, 2], ["a_size", 1, 6]]) {
+    const location = gl.getAttribLocation(program, name);
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, size, gl.FLOAT, false, STRIDE * 4, offset * 4);
+  }
   gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive: particles glow on the dark ground
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
   gl.clearColor(0, 0, 0, 0);
+  return { gl, uResolution, STRIDE };
+}
 
-  // ── state ───────────────────────────────────────────────
-  const rng = mulberry32(20260810);
-  const mobile = window.innerWidth < 768;
-  const COUNT = mobile ? 4500 : 12000;
+// ── the ambient hero field: pure drift, no mechanics ──────────────────────
+export function initHero(reducedMotion) {
+  const canvas = document.getElementById("hero-canvas");
+  if (!canvas) return;
+  const context = buildGL(canvas);
+  if (!context) { canvas.style.display = "none"; return; }
+  const { gl, uResolution, STRIDE } = context;
+
+  const rng = mulberry32(477001);
+  const COUNT = window.innerWidth < 768 ? 2500 : 6000;
+  const vertexData = new Float32Array(COUNT * STRIDE);
+  const particles = [];
+  let W = 0, H = 0, dpr = 1;
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = canvas.parentElement.clientWidth;
+    H = canvas.parentElement.clientHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+  }
+  resize();
+  window.addEventListener("resize", resize);
+
+  for (let i = 0; i < COUNT; i += 1) {
+    particles.push({
+      x: rng() * (W || 1440), y: rng() * (H || 700),
+      speed: 14 + rng() * 34, phase: rng() * Math.PI * 2,
+      unsafe: rng() < UNSAFE_SHARE, alpha: 0.35 + rng() * 0.5,
+    });
+  }
+
+  function draw(now) {
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform2f(uResolution, canvas.width, canvas.height);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    let offset = 0;
+    for (const p of particles) {
+      const [r, g, b] = p.unsafe ? [0.85, 0.47, 0.31] : [0.32, 0.6, 0.52];
+      vertexData[offset] = p.x * dpr;
+      vertexData[offset + 1] = (p.y + Math.sin(now * 0.0011 + p.phase) * 4) * dpr;
+      vertexData[offset + 2] = r; vertexData[offset + 3] = g; vertexData[offset + 4] = b;
+      vertexData[offset + 5] = p.alpha;
+      vertexData[offset + 6] = 3.2 * dpr;
+      offset += STRIDE;
+    }
+    gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.POINTS, 0, particles.length);
+  }
+
+  if (reducedMotion) { draw(0); return; }
+
+  let last = performance.now();
+  let running = true;
+  new IntersectionObserver((entries) => { running = entries[0].isIntersecting; }).observe(canvas);
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    if (running) {
+      for (const p of particles) {
+        p.x += p.speed * dt;
+        if (p.x > W + 10) { p.x = -10; p.y = Math.random() * H; }
+      }
+      draw(now);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ── the simulation lab ────────────────────────────────────────────────────
+export function initSimLab(reducedMotion) {
+  const canvas = document.getElementById("sim-canvas");
+  const overlay = document.getElementById("sim-overlay");
+  const context = buildGL(canvas);
+  if (!context) {
+    document.getElementById("sim-stage").style.display = "none";
+    document.getElementById("sim-fallback").style.display = "block";
+    return;
+  }
+  const { gl, uResolution, STRIDE } = context;
+
+  const rng = mulberry32(20260811);
+  const COUNT = window.innerWidth < 768 ? 4000 : 10000;
   const vertexData = new Float32Array(COUNT * STRIDE);
 
+  // ── adjustable parameters: the lab's whole point ────────
+  const params = {
+    screenCost: PRICES.cheap,      // $/call
+    judgeCost: PRICES.deep,
+    screenLatency: 1200,           // ms — our measured flash-lite
+    judgeLatency: 2500,            // ms — frontier-judge class
+    separability: SCENARIOS.typical.separability,
+  };
   let W = 0, H = 0, dpr = 1;
-  let mode = "cascade"; // or "flat"
-  let traffic = TRAFFIC.default;
-  let warn = traffic.band[0];
-  let block = traffic.band[1];
+  let mode = "cascade";
+  let [warn, block] = SCENARIOS.typical.band;
+
+  const distribution = () => {
+    const s = params.separability;
+    return {
+      safe: [clamp(0.47 - 0.32 * s, 0.05, 0.5), 0.2 - 0.1 * s],
+      unsafe: [clamp(0.53 + 0.32 * s, 0.5, 0.95), 0.2 - 0.1 * s],
+    };
+  };
 
   const particles = [];
-  const decisions = []; // ring buffer of gate-1 outcomes: 0 exit, 1 escalate, 2 block
+  const decisions = [];
   const DECISION_WINDOW = 700;
 
   const geometry = {
-    padTop: 30,
-    padBottom: 40,
-    // The gates sit in the right half so the corridor, handles and labels stay clear
-    // of the hero copy; particles still flow behind the text, dimmed by the scrim.
-    gate1: () => W * 0.56,
-    gate2: () => W * 0.87,
+    padTop: 30, padBottom: 40,
+    gate1: () => W * 0.42,
+    gate2: () => W * 0.78,
     scoreToY: (s) => geometry.padTop + (1 - s) * (H - geometry.padTop - geometry.padBottom),
     yToScore: (y) => 1 - (y - geometry.padTop) / (H - geometry.padTop - geometry.padBottom),
   };
 
   function sampleScores() {
+    const d = distribution();
     const unsafe = rng() < UNSAFE_SHARE;
-    const [cm, cs] = unsafe ? traffic.unsafe : traffic.safe;
-    const cheap = clamp(cm + gaussian(rng) * cs, 0.02, 0.98);
-    const deep = clamp((unsafe ? 0.8 : 0.22) + gaussian(rng) * 0.09, 0.02, 0.98);
-    return { unsafe, cheap, deep };
+    const [mean, sd] = unsafe ? d.unsafe : d.safe;
+    return {
+      unsafe,
+      cheap: clamp(mean + gaussian(rng) * sd, 0.02, 0.98),
+      deep: clamp((unsafe ? 0.8 : 0.22) + gaussian(rng) * 0.09, 0.02, 0.98),
+    };
   }
+
+  // Escalated particles crawl: their pace is the judge's latency, made visible.
+  const escalatedFactor = () => clamp(1500 / params.judgeLatency, 0.25, 1.2);
 
   function spawn(particle, atLeft) {
     const s = sampleScores();
@@ -124,8 +239,6 @@ export function initSwarm(reducedMotion) {
     particle.state = FLOW;
     particle.burst = 0;
     particle.alpha = 0.65 + rng() * 0.3;
-    // Particles initialised mid-scene get their routing applied silently, so the
-    // opening frame already looks like a running system rather than a starting gun.
     if (!atLeft) {
       if (mode === "cascade" && particle.x >= geometry.gate1()) {
         const verdict = routeAtScreen(particle.cheap);
@@ -144,9 +257,9 @@ export function initSwarm(reducedMotion) {
   }
 
   function routeAtScreen(cheap) {
-    if (cheap >= block) return 2; // blocked
-    if (cheap < warn) return 0;   // cleared — never pays the judge
-    return 1;                     // escalate
+    if (cheap >= block) return 2;
+    if (cheap < warn) return 0;
+    return 1;
   }
 
   function recordDecision(kind) {
@@ -154,7 +267,15 @@ export function initSwarm(reducedMotion) {
     if (decisions.length > DECISION_WINDOW) decisions.shift();
   }
 
-  // ── simulation ──────────────────────────────────────────
+  //! Seed the window by routing a fresh sample from the CURRENT distribution, so the
+  //  meters answer immediately and re-settle the moment a slider moves. Same routing
+  //  rule the particles obey — this is the share of traffic that escalates, computed
+  //  the same way, not a placeholder.
+  function primeDecisions(count = 400) {
+    decisions.length = 0;
+    for (let i = 0; i < count; i += 1) recordDecision(routeAtScreen(sampleScores().cheap));
+  }
+
   function step(dt, now) {
     const gate1 = geometry.gate1();
     const gate2 = geometry.gate2();
@@ -164,7 +285,8 @@ export function initSwarm(reducedMotion) {
         if (p.burst >= 1) spawn(p, true);
         continue;
       }
-      p.x += p.speed * dt * (p.state === CLEARED ? 1.35 : 1);
+      const factor = p.state === CLEARED ? 1.35 : p.state === ESCALATED ? escalatedFactor() : 1;
+      p.x += p.speed * dt * factor;
       if (mode === "cascade" && p.state === FLOW && p.x >= gate1) {
         const verdict = routeAtScreen(p.cheap);
         recordDecision(verdict);
@@ -180,7 +302,10 @@ export function initSwarm(reducedMotion) {
     }
   }
 
-  function fill() {
+  function draw() {
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform2f(uResolution, canvas.width, canvas.height);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     let offset = 0;
     for (const p of particles) {
       let r, g, b, a = p.alpha, size = 3.1 * dpr;
@@ -195,25 +320,16 @@ export function initSwarm(reducedMotion) {
       }
       vertexData[offset] = p.x * dpr;
       vertexData[offset + 1] = p.y * dpr;
-      vertexData[offset + 2] = r;
-      vertexData[offset + 3] = g;
-      vertexData[offset + 4] = b;
+      vertexData[offset + 2] = r; vertexData[offset + 3] = g; vertexData[offset + 4] = b;
       vertexData[offset + 5] = a;
       vertexData[offset + 6] = size;
       offset += STRIDE;
     }
-  }
-
-  function draw() {
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.uniform2f(uResolution, canvas.width, canvas.height);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    fill();
     gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
     gl.drawArrays(gl.POINTS, 0, particles.length);
   }
 
-  // ── overlay: gates, corridor, handles, labels ───────────
+  // ── overlay ─────────────────────────────────────────────
   const nodes = {};
   function buildOverlay() {
     overlay.textContent = "";
@@ -247,12 +363,11 @@ export function initSwarm(reducedMotion) {
     nodes.gate1.setAttribute("y1", geometry.padTop); nodes.gate1.setAttribute("y2", H - geometry.padBottom);
     nodes.gate1.style.display = cascade ? "" : "none";
     nodes.gate1Label.style.display = cascade ? "" : "none";
-    // Price labels sit at the top edge, end-anchored against their gate lines —
-    // clear of the hero copy, the HUD meters, and the right edge at any width.
     nodes.gate1Label.setAttribute("x", gate1 - 6);
-    nodes.gate1Label.setAttribute("y", geometry.padTop + 34);
+    nodes.gate1Label.setAttribute("y", geometry.padTop + 4);
     nodes.gate1Label.setAttribute("text-anchor", "end");
-    nodes.gate1Label.textContent = `screen · ${money(PRICES.cheap * 1000, 3)}/1k`;
+    nodes.gate1Label.textContent =
+      `screen · ${money(params.screenCost * 1000, 3)}/1k · ${Math.round(params.screenLatency)}ms`;
 
     const g2Top = cascade ? yBlock : geometry.padTop;
     const g2Bottom = cascade ? yWarn : H - geometry.padBottom;
@@ -260,8 +375,9 @@ export function initSwarm(reducedMotion) {
     nodes.gate2.setAttribute("y1", g2Top); nodes.gate2.setAttribute("y2", g2Bottom);
     nodes.gate2Label.setAttribute("x", gate2 - 6);
     nodes.gate2Label.setAttribute("text-anchor", "end");
-    nodes.gate2Label.setAttribute("y", geometry.padTop + 34);
-    nodes.gate2Label.textContent = `frontier judge · ${money(PRICES.deep * 1000, 2)}/1k`;
+    nodes.gate2Label.setAttribute("y", geometry.padTop + 4);
+    nodes.gate2Label.textContent =
+      `judge · ${money(params.judgeCost * 1000, 2)}/1k · ${Math.round(params.judgeLatency)}ms`;
 
     nodes.corridor.style.display = cascade ? "" : "none";
     nodes.corridor.setAttribute("x", gate1);
@@ -277,27 +393,26 @@ export function initSwarm(reducedMotion) {
       handle.label.textContent = which === "warn" ? `escalate ≥ ${warn.toFixed(2)}` : `block ≥ ${block.toFixed(2)}`;
     }
 
-    // Zone labels sit centred between the gates, well clear of the drag handles.
-    const zoneX = (gate1 + gate2) / 2;
+    // Captions hug the right end of the corridor, end-anchored, so they never
+    // collide with the threshold handles and their labels on the left.
+    const zoneX = gate2 - 8;
     for (const node of [nodes.zoneBlock, nodes.zoneClear, nodes.zoneEsc]) {
       node.style.display = cascade ? "" : "none";
       node.setAttribute("x", zoneX);
-      node.setAttribute("text-anchor", "middle");
+      node.setAttribute("text-anchor", "end");
     }
-    nodes.zoneBlock.setAttribute("y", Math.max(geometry.padTop + 16, yBlock - 12));
+    nodes.zoneBlock.setAttribute("y", Math.max(geometry.padTop + 34, yBlock - 14));
     nodes.zoneBlock.textContent = "BLOCKED AT THE SCREEN";
     nodes.zoneEsc.setAttribute("y", (yWarn + yBlock) / 2 + 3);
     nodes.zoneEsc.textContent = "UNCERTAIN → PAYS THE JUDGE";
-    nodes.zoneClear.setAttribute("y", Math.min(H - geometry.padBottom - 8, yWarn + 20));
-    nodes.zoneClear.textContent = "CLEARED — NEVER PAYS";
+    nodes.zoneClear.setAttribute("y", Math.min(H - geometry.padBottom - 10, yWarn + 24));
+    nodes.zoneClear.textContent = "CLEARED — NEVER PAYS, NEVER WAITS";
   }
 
   function attachDrag(group, which) {
     let dragging = false;
     group.addEventListener("pointerdown", (event) => {
-      dragging = true;
-      group.setPointerCapture(event.pointerId);
-      event.preventDefault();
+      dragging = true; group.setPointerCapture(event.pointerId); event.preventDefault();
     });
     group.addEventListener("pointermove", (event) => {
       if (!dragging) return;
@@ -316,48 +431,66 @@ export function initSwarm(reducedMotion) {
   function setThreshold(which, value) {
     if (which === "warn") warn = clamp(value, 0.04, block - 0.03);
     else block = clamp(value, warn + 0.03, 0.96);
-    decisions.length = 0; // stale shares describe a policy that no longer exists
+    primeDecisions();
     layoutOverlay();
     if (reducedMotion) renderStatic();
   }
 
-  // ── meters ──────────────────────────────────────────────
-  const meterFlat = document.getElementById("meter-flat");
-  const meterCascade = document.getElementById("meter-cascade");
-  const meterEsc = document.getElementById("meter-esc");
-  const meterSave = document.getElementById("meter-save");
-  meterFlat.textContent = money(PRICES.deep * 1000, 2);
+  // ── meters: cost AND latency, honestly ──────────────────
+  const meter = (id) => document.getElementById(id);
+  const meters = {
+    costFlat: meter("sim-cost-flat"), costCascade: meter("sim-cost-cascade"),
+    costSave: meter("sim-cost-save"), esc: meter("sim-esc"),
+    latFlat: meter("sim-lat-flat"), latMean: meter("sim-lat-mean"),
+    latSave: meter("sim-lat-save"), latP95: meter("sim-lat-p95"),
+  };
 
   function updateMeters() {
+    meters.costFlat.textContent = money(params.judgeCost * 1000, 2);
+    meters.latFlat.textContent = Math.round(params.judgeLatency) + "ms";
     if (mode === "flat" || decisions.length < 60) {
       if (mode === "flat") {
-        meterCascade.textContent = "—";
-        meterEsc.textContent = "—";
-        meterSave.textContent = "—";
+        for (const key of ["costCascade", "costSave", "esc", "latMean", "latSave", "latP95"]) {
+          meters[key].textContent = "—";
+        }
       }
       return;
     }
     let escalated = 0;
     for (const d of decisions) if (d === 1) escalated += 1;
     const share = escalated / decisions.length;
-    const costCascade = 1000 * (PRICES.cheap + share * PRICES.deep);
-    const costFlat = 1000 * PRICES.deep;
-    meterCascade.textContent = money(costCascade, 2);
-    meterEsc.textContent = (share * 100).toFixed(1) + "%";
-    meterSave.textContent = "−" + ((1 - costCascade / costFlat) * 100).toFixed(1) + "%";
+
+    const costCascade = 1000 * (params.screenCost + share * params.judgeCost);
+    const costFlat = 1000 * params.judgeCost;
+    meters.costCascade.textContent = money(costCascade, 2);
+    meters.costSave.textContent = "−" + ((1 - costCascade / costFlat) * 100).toFixed(1) + "%";
+    meters.esc.textContent = (share * 100).toFixed(1) + "%";
+
+    // Mean latency collapses; the p95 is the honest tail — an escalated request
+    // waits for the screen AND the judge, longer than judge-everything would take.
+    const latMean = params.screenLatency + share * params.judgeLatency;
+    const latP95 = share >= 0.05
+      ? params.screenLatency + params.judgeLatency
+      : params.screenLatency;
+    meters.latMean.textContent = Math.round(latMean) + "ms";
+    meters.latSave.textContent = (latMean <= params.judgeLatency ? "−" : "+")
+      + Math.abs((1 - latMean / params.judgeLatency) * 100).toFixed(0) + "%";
+    meters.latP95.textContent = Math.round(latP95) + "ms"
+      + (latP95 > params.judgeLatency ? " ⚠ tail waits for both" : "");
   }
 
-  // ── controls ────────────────────────────────────────────
-  const modeFlat = document.getElementById("mode-flat");
-  const modeCascade = document.getElementById("mode-cascade");
+  // ── controls: mode, scenarios, sliders ──────────────────
+  const modeFlat = document.getElementById("sim-mode-flat");
+  const modeCascade = document.getElementById("sim-mode-cascade");
   function setMode(next) {
     mode = next;
     modeFlat.setAttribute("aria-pressed", String(mode === "flat"));
     modeCascade.setAttribute("aria-pressed", String(mode === "cascade"));
-    decisions.length = 0;
-    for (const p of particles) if (p.state !== BURSTING) {
-      // Re-route everything left of the decided gates under the new regime.
-      if (p.x < (mode === "cascade" ? geometry.gate1() : geometry.gate2())) p.state = FLOW;
+    primeDecisions();
+    for (const p of particles) {
+      if (p.state !== BURSTING && p.x < (mode === "cascade" ? geometry.gate1() : geometry.gate2())) {
+        p.state = FLOW;
+      }
     }
     layoutOverlay();
     updateMeters();
@@ -366,10 +499,8 @@ export function initSwarm(reducedMotion) {
   modeFlat.addEventListener("click", () => setMode("flat"));
   modeCascade.addEventListener("click", () => setMode("cascade"));
 
-  function applyPreset(name) {
-    traffic = TRAFFIC[name];
-    [warn, block] = traffic.band;
-    decisions.length = 0;
+  function reshuffleUndecided() {
+    primeDecisions();
     for (const p of particles) {
       if (p.x < geometry.gate1() || p.state === BURSTING) {
         const s = sampleScores();
@@ -377,19 +508,82 @@ export function initSwarm(reducedMotion) {
         if (p.state !== BURSTING) p.state = FLOW;
       }
     }
-    if (mode !== "cascade") setMode("cascade");
-    layoutOverlay();
-    if (reducedMotion) renderStatic();
   }
-  document.getElementById("preset-tight").addEventListener("click", () => applyPreset("easy"));
-  document.getElementById("preset-wide").addEventListener("click", () => applyPreset("adversarial"));
+
+  for (const [key, scenario] of Object.entries(SCENARIOS)) {
+    const input = document.getElementById(`scenario-${key}`);
+    input.addEventListener("change", () => {
+      params.separability = scenario.separability;
+      [warn, block] = scenario.band;
+      syncSliders();
+      reshuffleUndecided();
+      if (mode !== "cascade") setMode("cascade");
+      layoutOverlay();
+      if (reducedMotion) renderStatic();
+    });
+  }
+
+  // Sliders: costs are log-scaled (they span decades); latencies and separability
+  // are linear. Every change re-labels the gates and reprices the meters live.
+  const sliders = [
+    { id: "sim-screen-cost", key: "screenCost", log: [0.000001, 0.001],
+      format: (v) => money(v * 1000, 3) + "/1k" },
+    { id: "sim-judge-cost", key: "judgeCost", log: [0.0001, 0.01],
+      format: (v) => money(v * 1000, 2) + "/1k" },
+    { id: "sim-screen-lat", key: "screenLatency", linear: [5, 3000],
+      format: (v) => Math.round(v) + "ms" },
+    { id: "sim-judge-lat", key: "judgeLatency", linear: [200, 8000],
+      format: (v) => Math.round(v) + "ms" },
+    { id: "sim-sep", key: "separability", linear: [0, 1],
+      format: (v) => v < 0.33 ? "overlapping" : v < 0.7 ? "partly separable" : "cleanly separable" },
+  ];
+  function sliderToValue(s, t) {
+    if (s.log) {
+      const [lo, hi] = s.log;
+      return lo * Math.pow(hi / lo, t);
+    }
+    const [lo, hi] = s.linear;
+    return lo + (hi - lo) * t;
+  }
+  function valueToSlider(s, v) {
+    if (s.log) {
+      const [lo, hi] = s.log;
+      return Math.log(v / lo) / Math.log(hi / lo);
+    }
+    const [lo, hi] = s.linear;
+    return (v - lo) / (hi - lo);
+  }
+  function syncSliders() {
+    for (const s of sliders) {
+      const input = document.getElementById(s.id);
+      input.value = String(Math.round(valueToSlider(s, params[s.key]) * 1000));
+      document.getElementById(s.id + "-value").textContent = s.format(params[s.key]);
+    }
+  }
+  for (const s of sliders) {
+    const input = document.getElementById(s.id);
+    input.addEventListener("input", () => {
+      params[s.key] = sliderToValue(s, Number(input.value) / 1000);
+      document.getElementById(s.id + "-value").textContent = s.format(params[s.key]);
+      if (s.key === "separability") {
+        for (const key of Object.keys(SCENARIOS)) {
+          document.getElementById(`scenario-${key}`).checked = false;
+        }
+        reshuffleUndecided();
+      }
+      primeDecisions();
+      layoutOverlay();
+      updateMeters();
+      if (reducedMotion) renderStatic();
+    });
+  }
 
   // ── lifecycle ───────────────────────────────────────────
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const hero = canvas.parentElement;
-    W = hero.clientWidth;
-    H = hero.clientHeight;
+    const stage = canvas.parentElement;
+    W = stage.clientWidth;
+    H = stage.clientHeight;
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
     overlay.setAttribute("width", W);
@@ -399,8 +593,7 @@ export function initSwarm(reducedMotion) {
   }
 
   function renderStatic() {
-    // Reduced motion: simulate ~14 seconds silently, then paint one honest frame.
-    decisions.length = 0;
+    primeDecisions();
     for (let i = 0; i < 420; i += 1) step(1 / 30, i * 33);
     draw();
     updateMeters();
@@ -413,20 +606,18 @@ export function initSwarm(reducedMotion) {
     particles.push(p);
     spawn(p, false);
   }
+  syncSliders();
+  primeDecisions();
+  updateMeters();
+  document.getElementById("scenario-typical").checked = true;
   window.addEventListener("resize", resize);
 
-  if (reducedMotion) {
-    renderStatic();
-    return;
-  }
+  if (reducedMotion) { renderStatic(); return; }
 
   let last = performance.now();
   let meterClock = 0;
   let running = true;
-  // Don't burn the battery when the hero is off screen.
-  new IntersectionObserver((entries) => { running = entries[0].isIntersecting; })
-    .observe(canvas);
-
+  new IntersectionObserver((entries) => { running = entries[0].isIntersecting; }).observe(canvas);
   function frame(now) {
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
@@ -439,24 +630,4 @@ export function initSwarm(reducedMotion) {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-}
-
-function buildProgram(gl) {
-  const compile = (type, source) => {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      throw new Error(gl.getShaderInfoLog(shader) || "shader compile failed");
-    }
-    return shader;
-  };
-  const program = gl.createProgram();
-  gl.attachShader(program, compile(gl.VERTEX_SHADER, VERT));
-  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAG));
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error(gl.getProgramInfoLog(program) || "program link failed");
-  }
-  return program;
 }

@@ -6,20 +6,13 @@
   <title>guardopt — maximise accuracy, minimise cost and latency</title>
   <meta name="description" content="guardopt searches every defensible guardrail policy on your own labelled traffic and ships the one that maximises accuracy while minimising cost and latency — with honest error bars.">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 
 <!-- ═══════════════ HERO · A1 the swarm ═══════════════ -->
 <header class="hero" id="hero">
-  <canvas id="swarm-canvas" aria-label="Live simulation: requests flowing through a guardrail cascade. Draggable thresholds route confident traffic out early; only the uncertain middle pays for the expensive judge."></canvas>
-  <svg id="swarm-overlay" aria-hidden="true"></svg>
-  <div id="swarm-fallback">
-    <p>Interactive demo needs WebGL. The numbers still hold: a searched cascade answers
-    most traffic with a $0.000031 screen and sends only the uncertain slice to the
-    $0.0016 judge — on our benchmark datasets that cut the bill by up to 98.4% at
-    matched accuracy.</p>
-  </div>
+  <canvas id="hero-canvas" aria-hidden="true"></canvas>
 
   <nav class="nav">
     <div class="nav-inner">
@@ -33,48 +26,13 @@
 
   <div class="hero-copy">
     <h1>Maximise <em>accuracy</em>.<br>Minimise <span class="min">cost and latency</span>.</h1>
-    <p class="sub">Behind this text: live traffic. Every dot is a request — a cheap
-    screen clears or blocks the confident ones for $0.031 per thousand, and only the
-    uncertain band pays the $1.61 judge. guardopt searches your own labelled traffic
-    for the policy that holds accuracy while the bill collapses — honestly, error
-    bars included.</p>
-    <div class="hero-legend" aria-hidden="true">
-      <span><i class="dot safe"></i>safe request</span>
-      <span><i class="dot risky"></i>risky request</span>
-      <span><i class="dot unc"></i>uncertain — pays the judge</span>
-      <span><i class="dot blocked"></i>blocked</span>
-    </div>
-    <p class="hint">↕ drag the teal handles on the dotted gate · watch the saving</p>
+    <p class="sub">guardopt searches every defensible guardrail policy on your own
+    labelled traffic — thresholds, on/off, ordering — and ships the one that holds
+    accuracy while the cost and latency collapse. Honestly, error bars included.</p>
     <div class="cta-row">
       <a class="btn primary" href="docs/">Get started</a>
-      <a class="btn ghost" href="https://github.com/govtech-responsibleai/guardopt">Source</a>
+      <a class="btn ghost" href="#sim">See it route traffic ↓</a>
       <span class="pip"><code id="pip-cmd">pip install git+https://github.com/govtech-responsibleai/guardopt</code><button id="pip-copy" type="button" aria-label="Copy install command">copy</button></span>
-    </div>
-  </div>
-
-  <div class="hud">
-    <div class="controls" role="group" aria-label="Simulation controls">
-      <button class="chip" id="mode-flat" aria-pressed="false" type="button">status quo: judge everything</button>
-      <button class="chip" id="mode-cascade" aria-pressed="true" type="button">searched cascade</button>
-      <button class="chip" id="preset-tight" type="button">easy traffic (UnSmile-like)</button>
-      <button class="chip" id="preset-wide" type="button">adversarial (ToxicChat-like)</button>
-    </div>
-    <div class="meters" aria-live="off">
-      <div class="meter">
-        <div class="label">judge-everything</div>
-        <div class="value dim" id="meter-flat">$1.61</div>
-        <div class="note">per 1k requests</div>
-      </div>
-      <div class="meter">
-        <div class="label">this cascade</div>
-        <div class="value" id="meter-cascade">$0.14</div>
-        <div class="note"><span id="meter-esc">7%</span> escalate to the judge</div>
-      </div>
-      <div class="meter">
-        <div class="label">saving</div>
-        <div class="value save" id="meter-save">−91%</div>
-        <div class="note">confident traffic decides itself — see below</div>
-      </div>
     </div>
   </div>
 </header>
@@ -89,6 +47,121 @@
     <span><b>MIT</b> licensed</span>
   </div>
 </div>
+
+<!-- ═══════════════ the simulation lab ═══════════════ -->
+<section class="block" id="sim">
+  <div class="wrap">
+    <div class="kicker">the live simulation</div>
+    <h2>Watch a policy route real traffic.</h2>
+    <p class="lede">Requests flow left to right. The dotted line is the <b>cheap
+    screen</b>; its two draggable handles set where it blocks and where it escalates.
+    The amber band between them is the traffic the screen cannot decide — and
+    <b>only that band</b> travels on to the expensive <b>judge</b>. Every number
+    below is computed live from the routing you are watching, using the parameters
+    you set on the right.</p>
+
+    <div class="sim-legend">
+      <span><i class="dot safe"></i><b>Teal dot</b> — a safe request.</span>
+      <span><i class="dot risky"></i><b>Ember dot</b> — a risky request.</span>
+      <span><i class="dot unc"></i><b>Amber dot</b> — uncertain: inside the band, on
+        its way to the judge. These dots visibly slow down — that crawl is the
+        judge's latency.</span>
+      <span><i class="dot blocked"></i><b>Red burst</b> — blocked at a gate.</span>
+    </div>
+
+    <div class="sim-grid">
+      <div class="sim-main">
+        <div class="sim-stage" id="sim-stage">
+          <canvas id="sim-canvas" aria-label="Live simulation: requests flowing through a two-stage guardrail policy with draggable thresholds."></canvas>
+          <svg id="sim-overlay" aria-hidden="true"></svg>
+        </div>
+        <div id="sim-fallback" class="smallprint" style="display:none">Interactive
+        simulation needs WebGL. The numbers still hold: a searched cascade answers
+        confident traffic at the cheap screen and sends only the uncertain band to
+        the judge — on our benchmark datasets that cut the bill by up to 98.4% at
+        matched accuracy.</div>
+
+        <div class="sim-meters">
+          <div class="meter-group">
+            <div class="meter-title">💸 Cost per 1k requests</div>
+            <div class="meter-row">
+              <div class="meter"><div class="label">judge everything</div>
+                <div class="value dim" id="sim-cost-flat">$1.61</div></div>
+              <div class="meter"><div class="label">this cascade</div>
+                <div class="value" id="sim-cost-cascade">—</div></div>
+              <div class="meter"><div class="label">saving</div>
+                <div class="value save" id="sim-cost-save">—</div></div>
+              <div class="meter"><div class="label">escalate</div>
+                <div class="value" id="sim-esc">—</div></div>
+            </div>
+          </div>
+          <div class="meter-group">
+            <div class="meter-title">⏱ Latency per request</div>
+            <div class="meter-row">
+              <div class="meter"><div class="label">judge everything</div>
+                <div class="value dim" id="sim-lat-flat">—</div></div>
+              <div class="meter"><div class="label">cascade, mean</div>
+                <div class="value" id="sim-lat-mean">—</div></div>
+              <div class="meter"><div class="label">vs judge-everything</div>
+                <div class="value save" id="sim-lat-save">—</div></div>
+              <div class="meter"><div class="label">cascade, p95</div>
+                <div class="value" id="sim-lat-p95">—</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="smallprint">The p95 is the honest fine print: an escalated request
+        waits for the screen <em>and</em> the judge, so while the mean collapses, the
+        tail gets slower than judge-everything. Real deployments watch both — which is
+        why guardopt reports p95 route latency on every cascade it recommends.</p>
+      </div>
+
+      <aside class="sim-panel">
+        <div class="modes" role="group" aria-label="Policy shape">
+          <button class="chip" id="sim-mode-cascade" aria-pressed="true" type="button">searched cascade</button>
+          <button class="chip" id="sim-mode-flat" aria-pressed="false" type="button">judge everything</button>
+        </div>
+
+        <fieldset class="scenarios">
+          <legend>Scenarios</legend>
+          <label class="scenario"><input type="radio" name="sim-scenario" id="scenario-typical">
+            <span><b>Typical traffic</b><small>Safe and risky mostly separate, a real
+            overlap in the middle. A modest band escalates; most of the bill
+            disappears.</small></span></label>
+          <label class="scenario"><input type="radio" name="sim-scenario" id="scenario-easy">
+            <span><b>Easy traffic (UnSmile-like)</b><small>Cleanly separable — the
+            screen is nearly always sure. Almost nothing escalates; the saving
+            approaches the 98% we measured at matched accuracy.</small></span></label>
+          <label class="scenario"><input type="radio" name="sim-scenario" id="scenario-adversarial">
+            <span><b>Adversarial (ToxicChat-like)</b><small>Heavy overlap — the screen
+            genuinely cannot tell. Most traffic escalates and the honest saving is
+            small. Cascades are not magic; here the judge must simply run.</small></span></label>
+        </fieldset>
+
+        <div class="sliders">
+          <label class="slider"><span class="slider-head"><span>screen cost / call</span>
+            <output id="sim-screen-cost-value"></output></span>
+            <input type="range" id="sim-screen-cost" min="0" max="1000" step="1"></label>
+          <label class="slider"><span class="slider-head"><span>judge cost / call</span>
+            <output id="sim-judge-cost-value"></output></span>
+            <input type="range" id="sim-judge-cost" min="0" max="1000" step="1"></label>
+          <label class="slider"><span class="slider-head"><span>screen latency</span>
+            <output id="sim-screen-lat-value"></output></span>
+            <input type="range" id="sim-screen-lat" min="0" max="1000" step="1"></label>
+          <label class="slider"><span class="slider-head"><span>judge latency</span>
+            <output id="sim-judge-lat-value"></output></span>
+            <input type="range" id="sim-judge-lat" min="0" max="1000" step="1"></label>
+          <label class="slider"><span class="slider-head"><span>how separable is your traffic?</span>
+            <output id="sim-sep-value"></output></span>
+            <input type="range" id="sim-sep" min="0" max="1000" step="1"></label>
+        </div>
+
+        <p class="smallprint">Defaults are our measured three-tier fleet
+        ($0.031 vs $1.61 per 1k; 1.2s vs 2.5s). Moving the separability slider
+        deselects the scenario — you are then modelling your own traffic.</p>
+      </aside>
+    </div>
+  </div>
+</section>
 
 <!-- ═══════════════ A3 · the score-space lens ═══════════════ -->
 <section class="block" id="lens">
@@ -207,9 +280,9 @@ result.recommendations[1].policy.to_file(<span class="s">"policy.json"</span>)</
 </footer>
 
 <script type="module">
-  import { initSwarm } from "./js/swarm.js?v=2";
-  import { initLens } from "./js/lens.js?v=2";
-  import { initFrontier } from "./js/frontier.js?v=2";
+  import { initHero, initSimLab } from "./js/swarm.js?v=3";
+  import { initLens } from "./js/lens.js?v=3";
+  import { initFrontier } from "./js/frontier.js?v=3";
 
   // Test hook: ?compact shrinks the hero so a headless full-page capture can see
   // every section at once. Harmless in normal use.
@@ -218,7 +291,8 @@ result.recommendations[1].policy.to_file(<span class="s">"policy.json"</span>)</
   }
 
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  initSwarm(reduced);
+  initHero(reduced);
+  initSimLab(reduced);
   initLens(reduced);
   initFrontier(reduced);
 
