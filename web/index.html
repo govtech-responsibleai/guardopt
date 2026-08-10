@@ -1,13 +1,224 @@
 <!doctype html>
-<!-- Temporary stub: redirects to the docs until the real landing page lands here. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="refresh" content="0; url=docs/">
-  <title>guardopt</title>
-  <link rel="canonical" href="docs/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>guardopt — search your guardrail policy, don't guess it</title>
+  <meta name="description" content="guardopt searches every defensible guardrail policy on your own labelled traffic — thresholds, on/off, ordering — and hands you the frontier with honest error bars.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <p><a href="docs/">guardopt documentation →</a></p>
+
+<!-- ═══════════════ HERO · A1 the swarm ═══════════════ -->
+<header class="hero" id="hero">
+  <canvas id="swarm-canvas" aria-label="Live simulation: requests flowing through a guardrail cascade. Draggable thresholds route confident traffic out early; only the uncertain middle pays for the expensive judge."></canvas>
+  <svg id="swarm-overlay" aria-hidden="true"></svg>
+  <div id="swarm-fallback">
+    <p>Interactive demo needs WebGL. The numbers still hold: a searched cascade answers
+    most traffic with a $0.000031 screen and sends only the uncertain slice to the
+    $0.0016 judge — on our benchmark datasets that cut the bill by up to 98.4% at
+    matched accuracy.</p>
+  </div>
+
+  <nav class="nav">
+    <a class="brand" href="#">🛡️ guardopt</a>
+    <div class="links">
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/govtech-responsibleai/guardopt">GitHub</a>
+    </div>
+  </nav>
+
+  <div class="hero-copy">
+    <h1>Your thresholds are <em>guesses</em>.</h1>
+    <p class="sub">guardopt searches every defensible guardrail policy on your own
+    labelled traffic — thresholds, on/off, ordering — and hands you the frontier with
+    honest error bars. Drag the gates. Watch the bill.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="docs/">Get started</a>
+      <a class="btn ghost" href="https://github.com/govtech-responsibleai/guardopt">Source</a>
+      <span class="pip"><code id="pip-cmd">pip install git+https://github.com/govtech-responsibleai/guardopt</code><button id="pip-copy" type="button" aria-label="Copy install command">copy</button></span>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="controls" role="group" aria-label="Simulation controls">
+      <button class="chip" id="mode-flat" aria-pressed="false" type="button">status quo: judge everything</button>
+      <button class="chip" id="mode-cascade" aria-pressed="true" type="button">searched cascade</button>
+      <button class="chip" id="preset-tight" type="button">easy traffic (UnSmile-like)</button>
+      <button class="chip" id="preset-wide" type="button">adversarial (ToxicChat-like)</button>
+    </div>
+    <div class="meters" aria-live="off">
+      <div class="meter">
+        <div class="label">judge-everything</div>
+        <div class="value dim" id="meter-flat">$1.61</div>
+        <div class="note">per 1k requests</div>
+      </div>
+      <div class="meter">
+        <div class="label">this cascade</div>
+        <div class="value" id="meter-cascade">$0.14</div>
+        <div class="note"><span id="meter-esc">7%</span> escalate to the judge</div>
+      </div>
+      <div class="meter">
+        <div class="label">saving</div>
+        <div class="value save" id="meter-save">−91%</div>
+        <div class="note">confident traffic decides itself — see below</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<div class="wrap">
+  <div class="stat-strip">
+    <span><b>852</b> tests green</span>
+    <span>exact search <b>or an explicit refusal</b> — never a silent sample</span>
+    <span>verified <b>live</b> against a LiteLLM proxy</span>
+    <span><b>MIT</b> licensed</span>
+  </div>
+</div>
+
+<!-- ═══════════════ A3 · the score-space lens ═══════════════ -->
+<section class="block" id="lens">
+  <div class="wrap">
+    <div class="kicker">the trade, made visible</div>
+    <h2>Every threshold is a line through your users.</h2>
+    <p class="lede">Each dot is a labelled request scored by two guardrails: a cheap
+    screen and an expensive judge. Drag the lines and watch precision and recall trade
+    against each other — then let the cascade carve a shape no flat policy can express.</p>
+
+    <div class="lens-grid">
+      <svg id="lens-svg" viewBox="0 0 640 560" role="img"
+        aria-label="Scatter plot of labelled requests by two guardrail scores, with draggable threshold lines and the block regions they create."></svg>
+      <div class="lens-panel">
+        <div class="modes" role="group" aria-label="Policy shape">
+          <button class="chip" id="lens-flat" aria-pressed="true" type="button">flat (OR the guardrails)</button>
+          <button class="chip" id="lens-cascade" aria-pressed="false" type="button">cascade (banded)</button>
+        </div>
+        <div class="metric-card">
+          <table aria-live="off">
+            <tr><td>Precision</td><td class="v" id="lens-precision">—</td></tr>
+            <tr><td>Recall</td><td class="v" id="lens-recall">—</td></tr>
+            <tr><td>F1</td><td class="v" id="lens-f1">—</td></tr>
+            <tr><td>Cost / request</td><td class="v" id="lens-cost">—</td></tr>
+            <tr><td>Judge consulted</td><td class="v" id="lens-consulted">—</td></tr>
+          </table>
+        </div>
+        <div class="modes">
+          <button class="chip" id="lens-best-flat" type="button">▸ search best flat</button>
+          <button class="chip" id="lens-best-cascade" type="button">▸ search best cascade</button>
+        </div>
+        <div class="legend">
+          <span><span class="sw" style="background:#3e6f62"></span>allowed, safe</span>
+          <span><span class="sw" style="background:#a34d33"></span>blocked, unsafe</span>
+          <span><span class="sw" style="background:transparent;border:2px solid #e2734f"></span>false positive</span>
+          <span><span class="sw" style="background:transparent;border:2px solid #e25a48"></span>missed unsafe</span>
+        </div>
+        <p class="smallprint" id="lens-note">A flat policy ORs the guardrails: block
+        right of the teal line or above it. Both guardrails run on every request, so
+        the bill is fixed — and the lower-right cluster is unreachable without
+        collateral blocks.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ A2 · the crystallisation ═══════════════ -->
+<section class="block" id="frontier">
+  <div class="wrap">
+    <div class="kicker">refuse to guess</div>
+    <h2>Watch your browser evaluate every policy.</h2>
+    <p class="lede">Three guardrails, twenty-seven candidate thresholds each, plus
+    “off” — 21,952 flat policies — and every two-threshold cascade that screens with
+    the cheap guardrail and sends only its uncertain band to the judge: 31,429
+    policies in all. guardopt enumerates the lot (or refuses with the number if the
+    space is too big — never a silent sample). Here is that search, live, in
+    JavaScript:</p>
+
+    <div class="frontier-head">
+      <button class="btn primary" id="frontier-run" type="button">▶ evaluate 31,429 policies</button>
+      <div id="frontier-status">idle</div>
+    </div>
+    <canvas id="frontier-canvas" width="1280" height="640"
+      aria-label="Animated scatter of 31,429 candidate policies by cost and F1. Dominated policies fade to grey; the Pareto frontier brightens; three profile picks are ringed."></canvas>
+    <p class="smallprint">Every grey dot is a policy someone could have shipped.
+    The bloom is slowed down for drama — the actual evaluation time is measured and
+    shown above, honestly. Guardrail prices are our measured per-call costs for a real
+    three-tier judge fleet (1× / 21× / 52×); score distributions are synthetic, because
+    your traffic is the thing worth measuring. Policies whose precision is undefined
+    (blocked nothing) are excluded, not scored 0 — same rule as the real optimiser.</p>
+  </div>
+</section>
+
+<!-- ═══════════════ quickstart ═══════════════ -->
+<section class="block" id="quickstart">
+  <div class="wrap">
+    <div class="kicker">five minutes</div>
+    <h2>Scores in. Frontier out.</h2>
+    <p class="lede">No framework to adopt, no service to run. If your guardrail scores
+    are already in a spreadsheet, you don't even need Python.</p>
+
+    <div class="quick-grid">
+      <pre class="code"><span class="c"># pip install git+https://github.com/govtech-responsibleai/guardopt</span>
+<span class="k">from</span> guardopt <span class="k">import</span> ScoreMatrix, optimise
+
+matrix = ScoreMatrix.from_csv(<span class="s">"scores.csv"</span>, guardrails)
+result = optimise(matrix)
+
+<span class="k">for</span> rec <span class="k">in</span> result.recommendations:   <span class="c"># Minimal · Balanced · Strict</span>
+    <span class="k">print</span>(rec.explanation.limitations)  <span class="c"># honesty first, always</span>
+
+result.recommendations[1].policy.to_file(<span class="s">"policy.json"</span>)</pre>
+      <div class="quick-points">
+        <div><b>🎯 One search, every shape.</b> Flat policies and banded cascades compete
+          in one space — the optimiser discovers whether routing wins on <i>your</i>
+          data, rather than assuming it.</div>
+        <div><b>🧾 Numbers you can defend.</b> Wilson intervals on every rate, a holdout
+          split that catches the winner's curse, bootstrap stability on every pick, and
+          a distribution-free bound on the deployed miss rate.</div>
+        <div><b>⚡ A runtime that matches.</b> The policy file is enforced by a
+          fail-closed router proven to decide exactly as measured — plus shadow mode,
+          drift monitoring, and exporters for LiteLLM and friends.</div>
+        <div><a class="btn ghost" href="docs/">Read the docs →</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>🛡️ guardopt · MIT · GovTech Responsible AI</span>
+    <span><a href="docs/">Documentation</a> · <a href="https://github.com/govtech-responsibleai/guardopt">GitHub</a> · <a href="docs/methodology/">Methodology</a></span>
+  </div>
+</footer>
+
+<script type="module">
+  import { initSwarm } from "./js/swarm.js";
+  import { initLens } from "./js/lens.js";
+  import { initFrontier } from "./js/frontier.js";
+
+  // Test hook: ?compact shrinks the hero so a headless full-page capture can see
+  // every section at once. Harmless in normal use.
+  if (new URLSearchParams(window.location.search).has("compact")) {
+    document.getElementById("hero").style.minHeight = "480px";
+  }
+
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  initSwarm(reduced);
+  initLens(reduced);
+  initFrontier(reduced);
+
+  document.getElementById("pip-copy").addEventListener("click", async (event) => {
+    try {
+      await navigator.clipboard.writeText(document.getElementById("pip-cmd").textContent);
+      event.target.textContent = "copied";
+      setTimeout(() => { event.target.textContent = "copy"; }, 1500);
+    } catch { /* clipboard unavailable — the text is selectable anyway */ }
+  });
+</script>
+
 </body>
 </html>
