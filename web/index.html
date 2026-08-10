@@ -6,7 +6,7 @@
   <title>guardopt — maximise accuracy, minimise cost and latency</title>
   <meta name="description" content="guardopt searches every defensible guardrail policy on your own labelled traffic and ships the one that maximises accuracy while minimising cost and latency — with honest error bars.">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 
@@ -207,9 +207,9 @@ result.recommendations[1].policy.to_file(<span class="s">"policy.json"</span>)</
 </footer>
 
 <script type="module">
-  import { initSwarm } from "./js/swarm.js";
-  import { initLens } from "./js/lens.js";
-  import { initFrontier } from "./js/frontier.js";
+  import { initSwarm } from "./js/swarm.js?v=2";
+  import { initLens } from "./js/lens.js?v=2";
+  import { initFrontier } from "./js/frontier.js?v=2";
 
   // Test hook: ?compact shrinks the hero so a headless full-page capture can see
   // every section at once. Harmless in normal use.
