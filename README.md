@@ -1,8 +1,10 @@
 <div align="center">
 
-# 🛡️ guardopt
-
-**Find the guardrail policy that blocks what matters and lets the rest through.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/lockup-dark.png">
+  <img src="assets/brand/lockup-light.png" width="560"
+       alt="guardopt — a shield holding three faders: accuracy at maximum, cost and latency at minimum. Maximise accuracy. Minimise cost and latency.">
+</picture>
 
 [![tests](https://img.shields.io/badge/tests-852%20passing-2ea44f)](https://github.com/govtech-responsibleai/guardopt)
 [![python](https://img.shields.io/badge/python-3.11%2B-3776ab?logo=python&logoColor=white)](https://github.com/govtech-responsibleai/guardopt/blob/main/pyproject.toml)

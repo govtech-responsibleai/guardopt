@@ -1,5 +1,5 @@
 site_name: guardopt
-site_description: Find the guardrail policy that blocks what matters and lets the rest through.
+site_description: Maximise accuracy. Minimise cost and latency.
 site_url: https://govtech-responsibleai.github.io/guardopt/docs/
 repo_url: https://github.com/govtech-responsibleai/guardopt
 repo_name: guardopt
@@ -13,8 +13,8 @@ theme:
   name: material
   icon:
     repo: fontawesome/brands/github
-    logo: material/shield-search
-  favicon: https://raw.githubusercontent.com/googlefonts/noto-emoji/main/svg/emoji_u1f6e1.svg
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
   features:
     - navigation.instant
     - navigation.instant.progress

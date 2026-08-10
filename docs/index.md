@@ -1,6 +1,8 @@
 # 🛡️ guardopt
 
-**Find the guardrail policy that blocks what matters and lets the rest through.**
+**Maximise accuracy. Minimise cost and latency.**
+
+guardopt finds the guardrail policy that blocks what matters and lets the rest through.
 
 `guardopt` is **not** another guardrail framework. It assumes you already have
 guardrails — PII detectors, prompt-injection classifiers, toxicity checks, grounding
