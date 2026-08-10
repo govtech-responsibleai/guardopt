@@ -43,10 +43,17 @@ cell, a written explanation of what it would have done to your data — with a 9
 confidence interval on every headline rate — and the policy itself as a committable,
 reviewable artifact the runtime enforces.
 
+Around the recommendation: a case-level **diff** between two policies (who gets blocked
+tomorrow that passes today), **per-slice metrics** that name the failing language or
+category an average hides, **isotonic calibration** so every guardrail speaks P(unsafe),
+**active labelling** that ranks which cases are worth an annotator's time, a
+**distribution-free bound** on the deployed false-negative rate, and a **retune loop**
+that promotes a new policy only when it beats the incumbent out of sample.
+
 Scores already in a spreadsheet? Skip Python entirely:
 
 ```bash
-guardopt optimise scores.csv --guardrails guardrails.json --out report.md
+guardopt optimise scores.csv --guardrails guardrails.json --out report.md --html report.html
 ```
 
 ## Install
@@ -55,7 +62,7 @@ guardopt optimise scores.csv --guardrails guardrails.json --out report.md
 pip install guardopt
 ```
 
-Core has one dependency, `pydantic`. Optional extras: `guardopt[sentinel]`.
+Core has two dependencies: `pydantic` (the input contract) and `numpy` (the search's vectorised evaluation — 19–40× over the pure path, which remains in the codebase as the parity-tested specification). Optional extras: `guardopt[sentinel]`.
 
 ## Quickstart
 
@@ -136,7 +143,7 @@ Most of these exist because the opposite went wrong somewhere first.
 
 ## Documentation
 
-📖 **[Full documentation](https://govtech-responsibleai.github.io/guardrails-routing/)**
+📖 **[Full documentation](https://govtech-responsibleai.github.io/guardopt/)**
 
 - [Concepts](docs/concepts.md) — guardrails, thresholds, the three bands, policies, profiles
 - [Optimising](docs/optimising.md) — the quickstart, preparing data, reading results

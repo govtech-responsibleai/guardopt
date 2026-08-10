@@ -70,9 +70,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/govtech-responsibleai/guardrails-routing"
-Repository = "https://github.com/govtech-responsibleai/guardrails-routing"
-Issues = "https://github.com/govtech-responsibleai/guardrails-routing/issues"
+Homepage = "https://github.com/govtech-responsibleai/guardopt"
+Repository = "https://github.com/govtech-responsibleai/guardopt"
+Issues = "https://github.com/govtech-responsibleai/guardopt/issues"
 
 [project.scripts]
 guardopt = "guardopt.cli:main"

@@ -42,6 +42,30 @@ demanded.
 
 ### Added
 
+- **The NumPy fast path** (`domain/vectorised.py`). The search's evaluation hot loop
+  lowered to arrays: 19–40× faster on benchmark configs, identical verdicts. The pure
+  per-case path stays in the codebase as the specification, held equal by a randomised
+  parity suite; numpy joins pydantic as the core's second dependency.
+- **The analysis kit.** `diff_policies` (case-level diff between two policies,
+  bucketed by label); `evaluate_slices` (per-slice confusion metrics with Wilson
+  intervals, small slices flagged); `calibrate`/`calibrated_cases` (PAV isotonic
+  calibration onto a shared P(unsafe) scale); `suggest_labels` +
+  `unsafe_labels_needed` (active labelling, ranked and explained);
+  `false_negative_bound` (exact one-sided Clopper–Pearson bound, attached to every
+  holdout evaluation).
+- **The retune loop** (`guardopt.retune`, CLI `guardopt retune`). Optimise on fresh
+  traffic and compare against the incumbent on the shared holdout: promote only on a
+  strict out-of-sample win, keep otherwise, refuse without a holdout.
+- **The HTML report** (`render_html`, CLI `--html`). One self-contained file with the
+  whole Pareto frontier as a trade-off chart, profile picks ringed, limitations first,
+  everything escaped. `OptimisationResult` now carries `frontier`.
+- **Guard adapters** (`runtime.adapters`). A heterogeneous fleet shelf beside
+  `HttpJsonGuardrail`: a free SG-flavoured PII regex screen, a keyword blocklist,
+  `CallableGuardrail` for local classifiers, and `PerspectiveGuardrail` (failures
+  become error readings; the API key is scrubbed from every error path).
+- **LiteLLM lifecycle modes.** `export_litellm` emits the matching hook per mode —
+  pre_call, during_call, and post_call scanning the model's response — with the block
+  surfacing as a clean HTTP 400, verified against a live proxy.
 - **Integrations** (`guardopt.integrations`). Exporters that deploy a recommended
   policy where guardrails already run: LiteLLM and Guardrails AI exports wrap the
   policy in each target's custom-guardrail mechanism running guardopt's own router

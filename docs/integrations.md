@@ -25,6 +25,20 @@ fail-closed error handling behave exactly as measured, inside a system that has 
 native concept of any of them. The one hole is `build_guards()`: your scorers are your
 services, and the generated module raises with instructions until you wire them.
 
+All three lifecycle modes are supported, each emitting the matching hook:
+`mode="pre_call"` and `"during_call"` scan the prompt; `mode="post_call"` scans the
+**model's response** — the output-guardrail case — via `async_post_call_success_hook`.
+A response-side policy should be optimised on a matrix of responses: the thresholds
+describe whatever text their matrix scored.
+
+This export is **verified against a live proxy**, not only the docs: config-file
+loading of the generated module, a blocked request surfacing as a clean HTTP 400
+carrying the policy name (`fastapi.HTTPException` — the live run is what settled that;
+a plain exception surfaces as a 500), and escalated traffic routing through a cascade's
+warning band to the deep stage. `tests/test_litellm_live.py` re-runs the interface
+checks against whatever LiteLLM version is installed, so an upstream move fails there
+instead of in someone's proxy.
+
 ## Exporting to Guardrails AI
 
 ```python

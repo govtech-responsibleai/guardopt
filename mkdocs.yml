@@ -1,7 +1,7 @@
 site_name: guardopt
 site_description: Find the guardrail policy that blocks what matters and lets the rest through.
-site_url: https://govtech-responsibleai.github.io/guardrails-routing/
-repo_url: https://github.com/govtech-responsibleai/guardrails-routing
+site_url: https://govtech-responsibleai.github.io/guardopt/
+repo_url: https://github.com/govtech-responsibleai/guardopt
 repo_name: guardopt
 edit_uri: edit/main/docs/
 
@@ -43,7 +43,10 @@ nav:
   - Concepts: concepts.md
   - Optimising: optimising.md
   - Constraints: constraints.md
+  - Analysis: analysis.md
   - Runtime: runtime.md
+  - Guard adapters: adapters.md
+  - Retuning: retune.md
   - Integrations: integrations.md
   - Policy schema: policy-schema.md
   - Methodology: methodology.md
@@ -72,4 +75,4 @@ strict: true
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/govtech-responsibleai/guardrails-routing
+      link: https://github.com/govtech-responsibleai/guardopt

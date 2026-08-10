@@ -2,7 +2,7 @@
 
 ## Quickstart
 
-This is [`examples/quickstart.py`](https://github.com/govtech-responsibleai/guardrails-routing/blob/main/examples/quickstart.py),
+This is [`examples/quickstart.py`](https://github.com/govtech-responsibleai/guardopt/blob/main/examples/quickstart.py),
 and the output below is what it actually prints.
 
 ```python
@@ -277,6 +277,19 @@ precision is 78% (train: 82%).
 The split is stratified and deterministic, and it is **refused, with the reason named**,
 when the holdout would carry too few unsafe cases to say anything.
 
+The holdout also carries a **distribution-free guarantee**: an exact one-sided
+Clopper–Pearson upper bound on the deployed false-negative rate —
+
+```text
+With 95% confidence, the true false-negative rate is at most 14.3% (measured: 2 missed
+of 54 unsafe holdout cases).
+```
+
+It is computed on the holdout and only there, because a bound computed on cases the
+search selected against inherits the winner's curse like every other in-sample number.
+Available directly as `false_negative_bound(misses, unsafe_total)` for counts of your
+own.
+
 **A bootstrap measures the stability of the choice itself.** Profile selection ranks
 policies on F-score differences that can sit inside sampling noise.
 `bootstrap_rounds` resamples the dataset and reports how often each pick would still win:
@@ -320,11 +333,15 @@ pass), `error: reason` cells are recorded failures, and unrecognised columns are
 rather than ignored. Or skip Python entirely:
 
 ```bash
-guardopt optimise scores.csv --guardrails guardrails.json --out report.md
+guardopt optimise scores.csv --guardrails guardrails.json --out report.md \
+  --html report.html
 ```
 
 which writes the whole result — options side by side, every confusion-matrix cell with
-its case IDs, limitations first — as one Markdown file.
+its case IDs, limitations first — as one Markdown file, and (with `--html`) as one
+self-contained HTML page that additionally draws the whole Pareto frontier as a
+trade-off chart, the recommended profiles ringed. `OptimisationResult.frontier` carries
+the same set programmatically: every defensible policy, not only the three picks.
 
 ## Configuration
 
