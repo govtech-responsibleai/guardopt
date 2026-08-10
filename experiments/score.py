@@ -113,6 +113,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--env-file", default=".env", help="where the keys live (never printed)")
     parser.add_argument(
+        "--pool-size",
+        type=int,
+        default=4000,
+        help="how many rows to fetch into the cached pool on first use",
+    )
+    parser.add_argument(
+        "--refresh-pool",
+        action="store_true",
+        help="refetch the pool even if cached — needed when an old cache is too small "
+        "for the requested sample",
+    )
+    parser.add_argument(
         "--chunk",
         type=int,
         default=25,
@@ -179,7 +191,13 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     try:
-        records = load_dataset(args.dataset, sample=args.sample, seed=args.seed)
+        records = load_dataset(
+            args.dataset,
+            sample=args.sample,
+            seed=args.seed,
+            pool_size=args.pool_size,
+            refresh=args.refresh_pool,
+        )
     except ValueError as error:
         print(f"score: {error}", file=sys.stderr)
         return 2
