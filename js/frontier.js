@@ -160,10 +160,13 @@ export function initFrontier(reducedMotion) {
   let phase = "idle"; // idle | blooming | done
   let layers = null;
 
+  // The x axis is COST EFFECTIVENESS — requests served per dollar — so both axes
+  // read the same way: up and right is better. Log scale; the fleet spans ~435
+  // req/$ (everything through the frontier judge) to ~32k req/$ (screen only).
   const costMin = PRICES.cheap * 0.8;
   const costMax = (PRICES.cheap + PRICES.mid + PRICES.deep) * 1.15;
   const xOf = (c) => M.left
-    + ((Math.log10(c) - Math.log10(costMin)) / (Math.log10(costMax) - Math.log10(costMin)))
+    + ((Math.log10(costMax) - Math.log10(c)) / (Math.log10(costMax) - Math.log10(costMin)))
       * (W - M.left - M.right);
   const yOf = (f) => M.top + (1 - f) * (H - M.top - M.bottom);
 
@@ -194,10 +197,10 @@ export function initFrontier(reducedMotion) {
       ctx.strokeStyle = "rgba(36,48,41,0.5)";
       ctx.beginPath(); ctx.moveTo(M.left, yOf(f)); ctx.lineTo(W - M.right, yOf(f)); ctx.stroke();
     }
-    for (const c of [0.0001, 0.001]) {
-      ctx.fillText("$" + c, xOf(c) - 14, H - M.bottom + 18);
+    for (const [c, label] of [[0.001, "1k req/$"], [0.0001, "10k req/$"]]) {
+      ctx.fillText(label, xOf(c) - 24, H - M.bottom + 18);
     }
-    ctx.fillText("cost per request (log) →", W / 2 - 70, H - M.bottom + 36);
+    ctx.fillText("cost effectiveness (requests per dollar, log) → better", W / 2 - 150, H - M.bottom + 36);
     ctx.save();
     ctx.translate(22, H / 2); ctx.rotate(-Math.PI / 2);
     ctx.fillText("F1 →", -14, 0);
@@ -256,7 +259,7 @@ export function initFrontier(reducedMotion) {
   }
 
   function drawFrontier(t) {
-    const frontier = frontierIndices();
+    const frontier = frontierIndices().reverse(); // left-to-right on the flipped axis
     ctx.strokeStyle = "rgba(127,227,204,0.6)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();

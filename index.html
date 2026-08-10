@@ -22,18 +22,29 @@
   </div>
 
   <nav class="nav">
-    <a class="brand" href="#"><svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true"><path d="M32 2 L62 12.5 V31 C62 47 51.5 57.5 32 62 C12.5 57.5 2 47 2 31 V12.5 Z" fill="#10201B" stroke="#2C3B34" stroke-width="2.5"/><g stroke-linecap="round"><line x1="17" y1="12" x2="17" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="32" y1="12" x2="32" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="47" y1="12" x2="47" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="17" y1="17" x2="17" y2="48" stroke="#5BC4AD" stroke-width="4" opacity="0.4"/><line x1="32" y1="43" x2="32" y2="48" stroke="#DCAF5A" stroke-width="4" opacity="0.4"/><line x1="47" y1="43" x2="47" y2="48" stroke="#E2734F" stroke-width="4" opacity="0.4"/></g><circle cx="17" cy="17" r="5.5" fill="#5BC4AD" stroke="#10201B" stroke-width="2"/><circle cx="32" cy="43" r="5.5" fill="#DCAF5A" stroke="#10201B" stroke-width="2"/><circle cx="47" cy="43" r="5.5" fill="#E2734F" stroke="#10201B" stroke-width="2"/></svg><span>guard<span class="opt">opt</span></span></a>
+    <div class="nav-inner">
+      <a class="brand" href="#"><svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true"><path d="M32 2 L62 12.5 V31 C62 47 51.5 57.5 32 62 C12.5 57.5 2 47 2 31 V12.5 Z" fill="#10201B" stroke="#2C3B34" stroke-width="2.5"/><g stroke-linecap="round"><line x1="17" y1="12" x2="17" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="32" y1="12" x2="32" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="47" y1="12" x2="47" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="17" y1="17" x2="17" y2="48" stroke="#5BC4AD" stroke-width="4" opacity="0.4"/><line x1="32" y1="43" x2="32" y2="48" stroke="#DCAF5A" stroke-width="4" opacity="0.4"/><line x1="47" y1="43" x2="47" y2="48" stroke="#E2734F" stroke-width="4" opacity="0.4"/></g><circle cx="17" cy="17" r="5.5" fill="#5BC4AD" stroke="#10201B" stroke-width="2"/><circle cx="32" cy="43" r="5.5" fill="#DCAF5A" stroke="#10201B" stroke-width="2"/><circle cx="47" cy="43" r="5.5" fill="#E2734F" stroke="#10201B" stroke-width="2"/></svg><span>guard<span class="opt">opt</span></span></a>
     <div class="links">
       <a href="docs/">Docs</a>
       <a href="https://github.com/govtech-responsibleai/guardopt">GitHub</a>
+    </div>
     </div>
   </nav>
 
   <div class="hero-copy">
     <h1>Maximise <em>accuracy</em>.<br>Minimise <span class="min">cost and latency</span>.</h1>
-    <p class="sub">Your thresholds are guesses — guardopt replaces them with search:
-    every defensible guardrail policy on your own labelled traffic, and the frontier
-    with honest error bars. Drag the gates. Watch the bill.</p>
+    <p class="sub">Behind this text: live traffic. Every dot is a request — a cheap
+    screen clears or blocks the confident ones for $0.031 per thousand, and only the
+    uncertain band pays the $1.61 judge. guardopt searches your own labelled traffic
+    for the policy that holds accuracy while the bill collapses — honestly, error
+    bars included.</p>
+    <div class="hero-legend" aria-hidden="true">
+      <span><i class="dot safe"></i>safe request</span>
+      <span><i class="dot risky"></i>risky request</span>
+      <span><i class="dot unc"></i>uncertain — pays the judge</span>
+      <span><i class="dot blocked"></i>blocked</span>
+    </div>
+    <p class="hint">↕ drag the teal handles on the dotted gate · watch the saving</p>
     <div class="cta-row">
       <a class="btn primary" href="docs/">Get started</a>
       <a class="btn ghost" href="https://github.com/govtech-responsibleai/guardopt">Source</a>
@@ -141,7 +152,7 @@
       <div id="frontier-status">idle</div>
     </div>
     <canvas id="frontier-canvas" width="1280" height="640"
-      aria-label="Animated scatter of 31,429 candidate policies by cost and F1. Dominated policies fade to grey; the Pareto frontier brightens; three profile picks are ringed."></canvas>
+      aria-label="Animated scatter of 31,429 candidate policies by cost effectiveness and F1 — up and right is better. Dominated policies fade to grey; the Pareto frontier brightens; three profile picks are ringed."></canvas>
     <p class="smallprint">Every grey dot is a policy someone could have shipped.
     The bloom is slowed down for drama — the actual evaluation time is measured and
     shown above, honestly. Guardrail prices are our measured per-call costs for a real
