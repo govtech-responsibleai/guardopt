@@ -51,6 +51,11 @@ class Constraints:
     max_false_positive_rate: float | None = None
     max_latency_ms: float | None = None
 
+    #: A bar on the TAIL, not the average. The mean is what a cascade improves; the p95
+    #: is what it can quietly make worse, because an escalated request waits for the
+    #: cheap stage and the dear one. An SLO is written about this number.
+    max_p95_latency_ms: float | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class ObjectiveWeights:
@@ -108,6 +113,12 @@ def violations(policy: Any, constraints: Constraints) -> tuple[str, ...]:
             constraints.max_latency_ms,
             False,
         ),
+        (
+            "p95 latency",
+            getattr(policy, "p95_latency_ms", None),
+            constraints.max_p95_latency_ms,
+            False,
+        ),
     ]
 
     found: list[str] = []
@@ -141,6 +152,11 @@ def _total_shortfall(policy: Any, constraints: Constraints) -> float:
         (
             getattr(policy, "estimated_latency_ms", None),
             constraints.max_latency_ms,
+            False,
+        ),
+        (
+            getattr(policy, "p95_latency_ms", None),
+            constraints.max_p95_latency_ms,
             False,
         ),
     ):

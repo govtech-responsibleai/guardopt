@@ -56,12 +56,10 @@ from guardopt.domain.metrics import (
 from guardopt.domain.policy import Policy
 from guardopt.domain.risk import RiskBound, false_negative_bound
 from guardopt.domain.route import evaluate_staged_policy_on_case
-from guardopt.domain.route_cost import percentile, route_latency_ms
 from guardopt.domain.search import (
     EvaluatedPolicy,
     PolicyEvaluator,
     SearchDiagnostics,
-    mean_latency_by_guardrail,
     search_policies,
 )
 from guardopt.domain.selection import select_profiles
@@ -270,7 +268,9 @@ def _staged_route_note(
     cost — measured, not asserted.
 
     The p95 is the honest counterpart to the mean the card already shows: a cascade's
-    cost is a distribution, and the mean alone hides exactly the tail that hurts.
+    latency is a distribution, and the mean alone hides exactly the tail that hurts —
+    an escalated request waits for the cheap stage AND the dear one, so a cascade can
+    lower the mean while raising the tail above judge-everything.
     """
     staged = evaluated.policy
     if staged is None or staged.is_flat or not request.test_cases:
@@ -289,16 +289,14 @@ def _staged_route_note(
         f"the final stage."
     )
 
-    mean_latency = mean_latency_by_guardrail(request)
-    route_latencies = [
-        latency
-        for walk in walks
-        if (latency := route_latency_ms(staged, walk.stages_run, definitions, mean_latency))
-        is not None
-    ]
-    p95 = percentile(route_latencies, 95)
-    if p95 is not None:
-        note += f" The slowest 5% of routes add about {round(p95)} ms or more."
+    # Measured per case, from each request's own timings — see domain/latency.py.
+    if evaluated.p95_latency_ms is not None and evaluated.estimated_latency_ms is not None:
+        note += (
+            f" Latency across {evaluated.timed_case_count} timed requests: mean "
+            f"{round(evaluated.estimated_latency_ms)} ms, but the slowest 5% take "
+            f"{round(evaluated.p95_latency_ms)} ms or more — the tail a cascade pays "
+            f"for the escalation it saves on."
+        )
     return note
 
 

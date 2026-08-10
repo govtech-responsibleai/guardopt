@@ -23,11 +23,20 @@ Constraints(
     min_precision=None,
     max_false_positive_rate=0.05,
     max_latency_ms=250.0,
+    max_p95_latency_ms=900.0,
 )
 ```
 
 With constraints supplied, the profiles are selected from the policies that clear every
 stated bar, and `result.warnings` says how many were excluded.
+
+!!! tip "`max_latency_ms` bounds the average; `max_p95_latency_ms` bounds the tail"
+    They are different promises, and a cascade separates them: escalating only the
+    uncertain band pulls the **mean** down, while the escalated requests wait for the
+    cheap stage *and* the dear one — so the **p95 can rise above judge-everything**.
+    Both numbers are measured per request from your own recorded timings (see
+    [Analysis](analysis.md)), not inferred from per-guardrail averages. If your SLO is
+    written about a percentile, constrain the percentile.
 
 ## When nothing qualifies
 

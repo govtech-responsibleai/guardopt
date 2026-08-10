@@ -25,12 +25,12 @@ from guardopt.domain.metrics import build_binary_report
 from guardopt.domain.metrics_intervention import build_intervention_report
 from guardopt.domain.policy import GuardrailBinding, Policy, Stage
 from guardopt.domain.route import evaluate_staged_policy_on_case
-from guardopt.domain.route_cost import route_cost, route_latency_ms
+from guardopt.domain.route_cost import route_cost
+from guardopt.domain.latency import route_latencies, summarise_latencies
 from guardopt.domain.search import (
     PolicyEvaluator,
     StagedPolicyEvaluator,
     mean_cost_by_guardrail,
-    mean_latency_by_guardrail,
 )
 from guardopt.domain.simulation import (
     GuardrailThresholds,
@@ -235,13 +235,16 @@ def test_staged_parity(seed: int, missing_policy: MissingResultPolicy) -> None:
 
 
 def test_staged_evaluator_costs_match_pure_route_totals() -> None:
-    """The evaluator's mean route latency/cost must equal the pure per-case totals."""
+    """The evaluator's route cost must equal the pure per-case cost total.
+
+    Cost keeps the mean-per-guardrail treatment because cost SUMS across calls, and the
+    mean of a sum is exactly the sum of the means. Latency does not — see the next test.
+    """
     rng = random.Random(11)
     definitions, cases = _random_world(7)
     by_name = {d.name: d for d in definitions}
     request = OptimiserRequest(guardrails=definitions, test_cases=cases)
     evaluator = StagedPolicyEvaluator(request)
-    mean_latency = mean_latency_by_guardrail(request)
     mean_cost = mean_cost_by_guardrail(request)
 
     for _ in range(10):
@@ -254,33 +257,122 @@ def test_staged_evaluator_costs_match_pure_route_totals() -> None:
             )
             for case in cases
         ]
-        latencies = [
-            value
-            for evaluation in pure
-            if (
-                value := route_latency_ms(
-                    policy, evaluation.stages_run, by_name, mean_latency
-                )
-            )
-            is not None
-        ]
         costs = [
             value
             for evaluation in pure
             if (value := route_cost(policy, evaluation.stages_run, by_name, mean_cost))
             is not None
         ]
-        expected_latency = sum(latencies) / len(latencies) if latencies else None
         expected_cost = sum(costs) / len(costs) if costs else None
 
-        if expected_latency is None:
-            assert evaluated.estimated_latency_ms is None
-        else:
-            assert evaluated.estimated_latency_ms == pytest.approx(expected_latency)
         if expected_cost is None:
             assert evaluated.estimated_cost is None
         else:
             assert evaluated.estimated_cost == pytest.approx(expected_cost)
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_staged_latency_matches_the_pure_per_case_distribution(seed: int) -> None:
+    """The vectorised latency distribution must equal the pure per-case one, exactly.
+
+    `domain/latency.py` is the specification: a request waits for the slowest call it
+    actually made. If these ever disagree, the array path is the bug.
+    """
+    rng = random.Random(seed * 13 + 2)
+    definitions, cases = _random_world(seed + 40)
+    by_name = {d.name: d for d in definitions}
+    request = OptimiserRequest(guardrails=definitions, test_cases=cases)
+    evaluator = StagedPolicyEvaluator(request)
+
+    for _ in range(8):
+        policy = _random_policy(rng, definitions)
+        evaluated = evaluator.evaluate(policy)
+        expected = summarise_latencies(
+            route_latencies(policy, by_name, cases, request.config.treat_missing_as)
+        )
+
+        assert evaluated.timed_case_count == expected.case_count
+        for measured, want in (
+            (evaluated.estimated_latency_ms, expected.mean_ms),
+            (evaluated.p50_latency_ms, expected.p50_ms),
+            (evaluated.p95_latency_ms, expected.p95_ms),
+            (evaluated.p99_latency_ms, expected.p99_ms),
+        ):
+            if want is None:
+                assert measured is None
+            else:
+                assert measured == pytest.approx(want)
+
+
+def test_flat_latency_matches_the_pure_per_case_distribution() -> None:
+    """A flat policy is one parallel stage that always runs — same specification."""
+    rng = random.Random(5)
+    definitions, cases = _random_world(23)
+    by_name = {d.name: d for d in definitions}
+    request = OptimiserRequest(guardrails=definitions, test_cases=cases)
+    evaluator = PolicyEvaluator(request)
+
+    for _ in range(10):
+        # At least one guardrail: an empty candidate has no policy form (a Stage needs
+        # a guardrail), and its latency is trivially unmeasured either way.
+        enabled = [d for d in definitions if rng.random() < 0.7] or [definitions[0]]
+        candidate = PolicyCandidate.of(
+            {d.name: _random_thresholds(rng, d) for d in enabled}
+        )
+        evaluated = evaluator.evaluate(candidate)
+        as_policy = Policy.from_candidate(candidate, by_name, name="flat")
+        expected = summarise_latencies(
+            route_latencies(as_policy, by_name, cases, request.config.treat_missing_as)
+        )
+
+        if expected.mean_ms is None:
+            assert evaluated.estimated_latency_ms is None
+        else:
+            assert evaluated.estimated_latency_ms == pytest.approx(expected.mean_ms)
+            assert evaluated.p95_latency_ms == pytest.approx(expected.p95_ms)
+
+
+def test_the_mean_of_maxima_is_not_the_max_of_means() -> None:
+    """Why this was rebuilt: the old per-guardrail-mean figure was always optimistic.
+
+    Two guardrails whose slow calls fall on DIFFERENT cases. Max of the means is 150;
+    every request actually waited 200ms, and now the number says so.
+    """
+    definitions = [
+        GuardrailDefinition(
+            name=name,
+            score_direction=ScoreDirection.HIGHER_IS_RISKIER,
+            minimum_score=0.0,
+            maximum_score=1.0,
+        )
+        for name in ("a", "b")
+    ]
+    cases = [
+        TestCaseGuardrailResults(
+            test_case_id="c1",
+            expected_action=ExpectedAction.BLOCK,
+            guardrail_results=[
+                GuardrailTestResult(guardrail_name="a", score=0.9, latency_ms=200),
+                GuardrailTestResult(guardrail_name="b", score=0.9, latency_ms=100),
+            ],
+        ),
+        TestCaseGuardrailResults(
+            test_case_id="c2",
+            expected_action=ExpectedAction.ALLOW,
+            guardrail_results=[
+                GuardrailTestResult(guardrail_name="a", score=0.1, latency_ms=100),
+                GuardrailTestResult(guardrail_name="b", score=0.1, latency_ms=200),
+            ],
+        ),
+    ]
+    request = OptimiserRequest(guardrails=definitions, test_cases=cases)
+    evaluated = PolicyEvaluator(request).evaluate(
+        PolicyCandidate.of(
+            {name: GuardrailThresholds(failed=0.5) for name in ("a", "b")}
+        )
+    )
+    assert evaluated.estimated_latency_ms == pytest.approx(200.0)  # not 150
+    assert evaluated.p95_latency_ms == pytest.approx(200.0)
 
 
 def test_flat_evaluator_full_surface_matches_pure() -> None:
