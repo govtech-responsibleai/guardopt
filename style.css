@@ -47,8 +47,12 @@ h1, h2, h3 { line-height: 1.15; letter-spacing: -0.015em; text-wrap: balance; }
   display: flex; align-items: center; justify-content: space-between;
   max-width: 66rem; margin: 0 auto; padding: 1.1rem 1.25rem;
 }
-.nav .brand { font-weight: 700; font-size: 1.05rem; color: var(--ink); }
+.nav .brand { font-weight: 800; font-size: 1.05rem; color: var(--ink);
+  display: inline-flex; align-items: center; gap: 0.55rem; letter-spacing: -0.02em; }
 .nav .brand:hover { text-decoration: none; }
+.nav .brand .opt, .hero-copy h1 .opt {
+  background: linear-gradient(90deg, var(--teal), var(--amber));
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
 .nav .links { display: flex; gap: 1.4rem; font-size: 0.92rem; }
 
 /* ── hero (A1: the swarm) ────────────────────────────────── */
@@ -60,6 +64,13 @@ h1, h2, h3 { line-height: 1.15; letter-spacing: -0.015em; text-wrap: balance; }
   overflow: hidden;
 }
 #swarm-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* A quiet zone for the copy: the swarm dims toward the left edge so text never
+   fights particles. Sits above the canvas, below the overlay and the copy. */
+.hero::after {
+  content: ""; position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  background: linear-gradient(100deg, rgba(9, 15, 13, 0.92) 0%,
+    rgba(9, 15, 13, 0.55) 34%, rgba(9, 15, 13, 0) 52%);
+}
 /* The overlay rides above the copy so the drag handles always work, but only the
    handles themselves take pointer events — links and buttons stay clickable. */
 #swarm-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 25; pointer-events: none; }
@@ -83,13 +94,14 @@ h1, h2, h3 { line-height: 1.15; letter-spacing: -0.015em; text-wrap: balance; }
 }
 .hero-copy > * { pointer-events: auto; }
 .hero-copy h1 {
-  font-size: clamp(2.1rem, 5.5vw, 3.6rem);
+  font-size: clamp(1.9rem, 4.6vw, 3.1rem);
   font-weight: 800;
   margin: 0 0 0.7rem;
-  max-width: 15ch;
+  max-width: 24ch;
   text-shadow: 0 2px 24px rgba(9, 15, 13, 0.9), 0 0 4px rgba(9, 15, 13, 0.9);
 }
 .hero-copy h1 em { font-style: normal; color: var(--teal-bright); }
+.hero-copy h1 .min { color: var(--amber); }
 .hero-copy p.sub {
   max-width: 46ch; font-size: 1.06rem; color: var(--muted); margin: 0 0 1.4rem;
   text-shadow: 0 1px 12px rgba(9, 15, 13, 0.95);
