@@ -97,8 +97,10 @@ export function initSwarm(reducedMotion) {
   const geometry = {
     padTop: 30,
     padBottom: 40,
-    gate1: () => W * 0.42,
-    gate2: () => W * 0.76,
+    // The gates sit in the right half so the corridor, handles and labels stay clear
+    // of the hero copy; particles still flow behind the text, dimmed by the scrim.
+    gate1: () => W * 0.56,
+    gate2: () => W * 0.87,
     scoreToY: (s) => geometry.padTop + (1 - s) * (H - geometry.padTop - geometry.padBottom),
     yToScore: (y) => 1 - (y - geometry.padTop) / (H - geometry.padTop - geometry.padBottom),
   };
@@ -248,7 +250,7 @@ export function initSwarm(reducedMotion) {
     // Price labels sit at the top edge, end-anchored against their gate lines —
     // clear of the hero copy, the HUD meters, and the right edge at any width.
     nodes.gate1Label.setAttribute("x", gate1 - 6);
-    nodes.gate1Label.setAttribute("y", geometry.padTop + 16);
+    nodes.gate1Label.setAttribute("y", geometry.padTop + 34);
     nodes.gate1Label.setAttribute("text-anchor", "end");
     nodes.gate1Label.textContent = `screen · ${money(PRICES.cheap * 1000, 3)}/1k`;
 
@@ -258,7 +260,7 @@ export function initSwarm(reducedMotion) {
     nodes.gate2.setAttribute("y1", g2Top); nodes.gate2.setAttribute("y2", g2Bottom);
     nodes.gate2Label.setAttribute("x", gate2 - 6);
     nodes.gate2Label.setAttribute("text-anchor", "end");
-    nodes.gate2Label.setAttribute("y", geometry.padTop + 16);
+    nodes.gate2Label.setAttribute("y", geometry.padTop + 34);
     nodes.gate2Label.textContent = `frontier judge · ${money(PRICES.deep * 1000, 2)}/1k`;
 
     nodes.corridor.style.display = cascade ? "" : "none";

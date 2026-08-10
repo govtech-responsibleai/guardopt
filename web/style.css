@@ -60,6 +60,13 @@ h1, h2, h3 { line-height: 1.15; letter-spacing: -0.015em; text-wrap: balance; }
   overflow: hidden;
 }
 #swarm-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* A quiet zone for the copy: the swarm dims toward the left edge so text never
+   fights particles. Sits above the canvas, below the overlay and the copy. */
+.hero::after {
+  content: ""; position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  background: linear-gradient(100deg, rgba(9, 15, 13, 0.92) 0%,
+    rgba(9, 15, 13, 0.55) 34%, rgba(9, 15, 13, 0) 52%);
+}
 /* The overlay rides above the copy so the drag handles always work, but only the
    handles themselves take pointer events — links and buttons stay clickable. */
 #swarm-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 25; pointer-events: none; }
