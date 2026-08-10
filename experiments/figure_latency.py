@@ -200,14 +200,18 @@ def draw(stem: Path) -> Path:
     # be able to say so.
     crossover = _crossover(flat_latencies, cascade_latencies)
 
-    for profile, colour in ((flat_profile, INK), (cascade_profile, TEAL)):
+    # Stagger the p95 labels: on datasets where the two policies land close together
+    # they would otherwise print on top of each other.
+    for (profile, colour), offset in zip(
+        ((flat_profile, INK), (cascade_profile, TEAL)), (0.885, 0.815)
+    ):
         axes.plot(
             [profile.p95_ms], [0.95], marker="o", color=colour, markersize=6, zorder=5
         )
         axes.annotate(
             f"p95 {profile.p95_ms:.0f}ms",
             xy=(profile.p95_ms, 0.95),
-            xytext=(profile.p95_ms, 0.855),
+            xytext=(profile.p95_ms, offset),
             color=colour,
             fontsize=8,
             ha="center",
@@ -243,12 +247,19 @@ def draw(stem: Path) -> Path:
     axes.set_xlabel("per-request latency (ms), measured")
     axes.set_ylabel("share of requests served within")
     axes.set_ylim(0, 1.02)
-    axes.set_xlim(left=0)
+    # Clip to the 99.5th percentile: a handful of multi-second outliers otherwise
+    # compress the region where every policy difference actually lives. The ECDF makes
+    # the clipping self-evident — the curves simply reach 1.0 past the right edge.
+    upper = max(
+        float(np.percentile(flat_latencies, 99.5)),
+        float(np.percentile(cascade_latencies, 99.5)),
+    )
+    axes.set_xlim(0, upper * 1.05)
     axes.grid(alpha=0.18, linewidth=0.7)
     axes.spines[["top", "right"]].set_visible(False)
     axes.legend(loc="lower right", frameon=False, fontsize=9)
     axes.set_title(
-        f"{stem.name} — per-request latency: {finding}",
+        f"{stem.name} — per-request latency\n{finding}",
         fontsize=10,
         color=INK,
     )
