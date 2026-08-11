@@ -472,6 +472,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-slow-is-it-really-the-latency-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How slow is it, really? The latency distribution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-guarantee-a-distribution-free-risk-bound" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -777,6 +788,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-slow-is-it-really-the-latency-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How slow is it, really? The latency distribution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-guarantee-a-distribution-free-risk-bound" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -927,12 +949,39 @@ may be shorter than the budget, and that is information too.</p>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">unsafe_labels_needed</span><span class="p">(</span><span class="mf">0.03</span><span class="p">)</span>   <span class="c1"># 1068</span>
 </code></pre></div>
 <p>Worst-case (p = 0.5) width, so the answer is a planning ceiling.</p>
+<h2 id="how-slow-is-it-really-the-latency-distribution">How slow is it, really? The latency distribution<a class="headerlink" href="#how-slow-is-it-really-the-latency-distribution" title="Permanent link">&para;</a></h2>
+<p>A policy's latency is not a number, it is a distribution — and a cascade reshapes the
+whole thing. Escalating only the uncertain band answers most requests with the cheap
+stage alone, but every escalated request waits for the cheap stage <em>and</em> the dear one.</p>
+<p>Which effect wins is <strong>a property of your traffic, not of cascades</strong>, and our benchmarks
+went both ways: where almost nothing escalated the cascade was faster across the entire
+distribution (mean −47%, p95 −65%), and where most traffic escalated it was slower
+throughout (mean +52%, p95 +40%) for a 5% cost saving. This is exactly why the numbers
+are measured rather than assumed.</p>
+<p>Every evaluated policy therefore carries the whole shape — <code>estimated_latency_ms</code> (the
+mean), <code>p50_latency_ms</code>, <code>p95_latency_ms</code>, <code>p99_latency_ms</code>, and <code>timed_case_count</code>, the
+number of requests those percentiles were computed from. To draw or analyse the full
+distribution:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guardopt</span><span class="w"> </span><span class="kn">import</span> <span class="n">route_latencies</span><span class="p">,</span> <span class="n">latency_profile</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">samples</span> <span class="o">=</span> <span class="n">route_latencies</span><span class="p">(</span><span class="n">policy</span><span class="p">,</span> <span class="n">definitions</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span>   <span class="c1"># one float per timed request</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">latency_profile</span><span class="p">(</span><span class="n">policy</span><span class="p">,</span> <span class="n">definitions</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span><span class="o">.</span><span class="n">sentence</span><span class="p">())</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="c1"># Latency across 1,842 timed requests: mean 1688ms, p50 1210ms, p95 3702ms, p99 3980ms.</span>
+</code></pre></div>
+<p>These are computed <strong>per request, from that request's own recorded timings</strong> — not from
+per-guardrail averages. The difference is not cosmetic: a request waits for the slowest
+call it actually made, and the mean of those maxima is never smaller than the max of the
+means. The old average-based figure was optimistic by construction and could not describe
+a tail at all.</p>
+<p>Percentiles are nearest-rank, so a quoted p95 is a latency some request actually had,
+never an interpolation between two requests neither of which took that long. Constrain
+the tail with <a href="../constraints/"><code>max_p95_latency_ms</code></a>.</p>
 <h2 id="the-guarantee-a-distribution-free-risk-bound">The guarantee: a distribution-free risk bound<a class="headerlink" href="#the-guarantee-a-distribution-free-risk-bound" title="Permanent link">&para;</a></h2>
 <p>The holdout evaluation carries one more number, documented with the rest of the
 <a href="../optimising/#trusting-the-numbers">honesty machinery</a>: an exact one-sided
 Clopper–Pearson upper bound on the deployed false-negative rate —</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>With 95% confidence, the true false-negative rate is at most 14.3%
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>(measured: 2 missed of 54 unsafe holdout cases).
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>With 95% confidence, the true false-negative rate is at most 14.3%
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>(measured: 2 missed of 54 unsafe holdout cases).
 </code></pre></div>
 <p>It is computed on the holdout and only there, because a bound computed on cases the
 search selected against inherits the winner's curse like every other number. The
