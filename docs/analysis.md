@@ -124,6 +124,41 @@ unsafe_labels_needed(0.03)   # 1068
 
 Worst-case (p = 0.5) width, so the answer is a planning ceiling.
 
+## How slow is it, really? The latency distribution
+
+A policy's latency is not a number, it is a distribution — and a cascade reshapes the
+whole thing. Escalating only the uncertain band answers most requests with the cheap
+stage alone, but every escalated request waits for the cheap stage *and* the dear one.
+
+Which effect wins is **a property of your traffic, not of cascades**, and our benchmarks
+went both ways: where almost nothing escalated the cascade was faster across the entire
+distribution (mean −47%, p95 −65%), and where most traffic escalated it was slower
+throughout (mean +52%, p95 +40%) for a 5% cost saving. This is exactly why the numbers
+are measured rather than assumed.
+
+Every evaluated policy therefore carries the whole shape — `estimated_latency_ms` (the
+mean), `p50_latency_ms`, `p95_latency_ms`, `p99_latency_ms`, and `timed_case_count`, the
+number of requests those percentiles were computed from. To draw or analyse the full
+distribution:
+
+```python
+from guardopt import route_latencies, latency_profile
+
+samples = route_latencies(policy, definitions, cases)   # one float per timed request
+print(latency_profile(policy, definitions, cases).sentence())
+# Latency across 1,842 timed requests: mean 1688ms, p50 1210ms, p95 3702ms, p99 3980ms.
+```
+
+These are computed **per request, from that request's own recorded timings** — not from
+per-guardrail averages. The difference is not cosmetic: a request waits for the slowest
+call it actually made, and the mean of those maxima is never smaller than the max of the
+means. The old average-based figure was optimistic by construction and could not describe
+a tail at all.
+
+Percentiles are nearest-rank, so a quoted p95 is a latency some request actually had,
+never an interpolation between two requests neither of which took that long. Constrain
+the tail with [`max_p95_latency_ms`](constraints.md).
+
 ## The guarantee: a distribution-free risk bound
 
 The holdout evaluation carries one more number, documented with the rest of the

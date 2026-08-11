@@ -21,6 +21,8 @@ import gzip
 import io
 import json
 import os
+import sys
+import time
 import random
 import urllib.parse
 import urllib.request
@@ -58,8 +60,29 @@ def _require(row: Mapping, field: str, dataset: str):
 
 def _http_bytes(url: str, *, headers: dict[str, str] | None = None) -> bytes:
     request = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(request, timeout=120) as response:
-        return response.read()
+    # The datasets-server rate-limits a long paging run (HTTP 429), and a fetch that
+    # dies two thirds through leaves a pool too small for the sample that was asked
+    # for. Back off and retry rather than turning a transient limit into a failed
+    # grid; a 5xx gets the same treatment, and anything else raises immediately
+    # because retrying a 404 is just a slower 404.
+    delay = 2.0
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            retryable = error.code == 429 or 500 <= error.code < 600
+            if not retryable or attempt == 5:
+                raise
+            wait = float(error.headers.get("Retry-After") or delay)
+            print(
+                f"  datasets-server {error.code}; waiting {wait:.0f}s "
+                f"(attempt {attempt + 1}/6)",
+                file=sys.stderr,
+            )
+            time.sleep(wait)
+            delay = min(delay * 2, 60.0)
+    raise RuntimeError("unreachable: the retry loop returns or raises")
 
 
 def _hf_rows(
@@ -103,6 +126,8 @@ def _hf_rows(
             break  # split exhausted
         rows.extend(page)
         offset += len(page)
+        if len(rows) < pool_size:
+            time.sleep(0.25)  # paced paging: cheaper than being rate-limited
     return rows
 
 

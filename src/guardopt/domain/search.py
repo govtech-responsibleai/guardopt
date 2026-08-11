@@ -42,7 +42,7 @@ from guardopt.domain.metrics import (
 )
 from guardopt.domain.metrics_intervention import InterventionReport
 from guardopt.domain.policy import GuardrailBinding, Policy, Stage
-from guardopt.domain.route_cost import stage_cost, stage_latency_ms
+from guardopt.domain.route_cost import stage_cost
 from guardopt.domain.selection import PROFILE_ORDER, PROFILE_SORT_KEYS
 from guardopt.domain.simulation import GuardrailThresholds, PolicyCandidate
 from guardopt.domain.stage_plans import (
@@ -54,10 +54,13 @@ from guardopt.domain.types import SearchMethod
 from guardopt.domain.vectorised import (
     CaseArrays,
     binary_report_from_codes,
+    flat_latency_arrays,
     flat_outcome_codes,
     intervention_report_from_codes,
+    route_latency_arrays,
     signature_from_codes,
     staged_outcome_codes,
+    summarise_latency_arrays,
 )
 
 
@@ -190,6 +193,9 @@ class EvaluatedPolicy:
     f1: float | None
     f2: float | None
 
+    #: The MEAN per-request latency, over the requests that carried a timing. Computed
+    #: per case (domain/latency.py), not from per-guardrail means: a request waits for
+    #: the slowest call it actually made, and the mean of maxima is not the max of means.
     estimated_latency_ms: float | None
 
     #: What a request costs under this policy, in the caller's own cost units. For a flat
@@ -198,6 +204,16 @@ class EvaluatedPolicy:
     #: routes actually taken. `None` when no price was measured or declared, never 0.0 —
     #: an unknown price is not a free policy.
     estimated_cost: float | None = None
+
+    #: The latency tail. `p95_latency_ms` is what `Constraints.max_p95_latency_ms`
+    #: reads, and what a cascade has to answer for: its mean falls with the escalation
+    #: share while its tail waits for both stages. Deliberately NOT a Pareto axis — every
+    #: axis added makes more policies non-dominated, and a frontier that keeps everything
+    #: has stopped being advice.
+    p50_latency_ms: float | None = None
+    p95_latency_ms: float | None = None
+    p99_latency_ms: float | None = None
+    timed_case_count: int = 0
 
     #: This policy's pass/warning/fail verdict on every case, in dataset order.
     #: Two policies with the same signature are INDISTINGUISHABLE in production, whatever
@@ -323,6 +339,7 @@ class PolicyEvaluator:
         )
         binary = binary_report_from_codes(self._arrays, codes, excluded)
         cm = binary.confusion_matrix
+        mean_latency, p50, p95, p99, timed_count = self._latency_stats(candidate)
 
         evaluated = EvaluatedPolicy(
             candidate=candidate,
@@ -336,28 +353,27 @@ class PolicyEvaluator:
             f05=f05(cm),
             f1=f1(cm),
             f2=f2(cm),
-            estimated_latency_ms=self._latency_for(candidate),
+            estimated_latency_ms=mean_latency,
+            p50_latency_ms=p50,
+            p95_latency_ms=p95,
+            p99_latency_ms=p99,
+            timed_case_count=timed_count,
             estimated_cost=self._cost_for(candidate),
             outcome_signature=signature_from_codes(codes, excluded),
         )
         self._cache[candidate] = evaluated
         return evaluated
 
-    def _latency_for(self, candidate: PolicyCandidate) -> float | None:
-        """Guardrails execute in parallel, so a policy costs its SLOWEST call — not the
-        sum. Summing would make every multi-guardrail policy look unaffordable and push all
-        three profiles towards single-guardrail answers.
+    def _latency_stats(self, candidate: PolicyCandidate):
+        """Mean, p50, p95, p99 over this candidate's per-case route latencies.
 
-        Timings are collapsed **per call** before the max, not per guardrail. Four signals
-        fanned out from one multi-label request are one call; charging them separately
-        would report four. Under `max` that collapse changes nothing today — the four carry
-        the same number — but the charge is computed in one place so that summing over
-        sequential stages later cannot quietly multiply it.
+        A flat policy is one parallel stage that always runs, so every timed case
+        contributes its own slowest call — never a mean standing in for a request.
         """
-        charges = latency_by_call_group(
-            candidate.enabled_names, self._definitions, self._mean_latency
+        latency, measured = flat_latency_arrays(
+            self._arrays, candidate.enabled_names, self._definitions
         )
-        return max(charges.values()) if charges else None
+        return summarise_latency_arrays(latency, measured)
 
     def _cost_for(self, candidate: PolicyCandidate) -> float | None:
         """Money SUMS where latency takes the max: three guardrails running together
@@ -651,14 +667,13 @@ class StagedPolicyEvaluator:
 
         # A cascade's cost is per case: a request that exits early never pays for the
         # stages it skipped. Averaging the routes actually taken is the only number that
-        # describes what this policy would have done.
-        estimated_latency = self._mean_route_charge(
-            stages_run,
-            [
-                stage_latency_ms(stage, self._definitions, self._mean_latency)
-                for stage in policy.stages
-            ],
+        # describes what this policy would have done. Latency goes further — it keeps the
+        # whole distribution, because a cascade's mean and its tail move in opposite
+        # directions and only reporting the mean would hide that.
+        latency, timed = route_latency_arrays(
+            self._arrays, self._definitions, policy, stages_run
         )
+        mean_latency, p50, p95, p99, timed_count = summarise_latency_arrays(latency, timed)
         estimated_cost = self._mean_route_charge(
             stages_run,
             [
@@ -685,7 +700,11 @@ class StagedPolicyEvaluator:
             f05=f05(cm),
             f1=f1(cm),
             f2=f2(cm),
-            estimated_latency_ms=estimated_latency,
+            estimated_latency_ms=mean_latency,
+            p50_latency_ms=p50,
+            p95_latency_ms=p95,
+            p99_latency_ms=p99,
+            timed_case_count=timed_count,
             estimated_cost=estimated_cost,
             outcome_signature=signature_from_codes(codes, excluded),
             policy=policy,

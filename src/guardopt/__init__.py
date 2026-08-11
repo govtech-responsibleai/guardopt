@@ -47,6 +47,7 @@ from guardopt.domain.calibration import (
     calibrated_definition,
 )
 from guardopt.domain.diff import CaseChange, PolicyDiff, diff_policies
+from guardopt.domain.latency import LatencyProfile, latency_profile, route_latencies
 from guardopt.domain.labelling import (
     LabelSuggestion,
     UnlabelledCase,
@@ -76,6 +77,7 @@ __all__ = [
     "GuardrailTestResult",
     "HoldoutEvaluation",
     "LabelSuggestion",
+    "LatencyProfile",
     "MissingResultPolicy",
     "ObjectiveWeights",
     "OptimisationResult",
@@ -106,10 +108,12 @@ __all__ = [
     "diff_policies",
     "evaluate_slices",
     "false_negative_bound",
+    "latency_profile",
     "optimise",
     "render_html",
     "render_markdown",
     "retune",
+    "route_latencies",
     "suggest_labels",
     "unsafe_labels_needed",
 ]

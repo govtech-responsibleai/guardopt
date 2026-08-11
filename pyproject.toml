@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "guardopt"
 version = "0.2.0.dev0"
-description = "Find the guardrail policy that blocks what matters and lets the rest through."
+description = "Maximise accuracy. Minimise cost and latency. Joint optimisation of guardrail thresholds, composition and routing on your own labelled traffic."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [

@@ -18,7 +18,7 @@ is a separate mask, because excluded is an absence of a verdict, not a fourth ve
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -40,11 +40,14 @@ from guardopt.domain.types import (
 
 __all__ = [
     "CaseArrays",
+    "flat_latency_arrays",
     "binary_report_from_codes",
     "flat_outcome_codes",
     "intervention_report_from_codes",
+    "route_latency_arrays",
     "signature_from_codes",
     "staged_outcome_codes",
+    "summarise_latency_arrays",
 ]
 
 PASS, WARNING, FAIL = np.uint8(0), np.uint8(1), np.uint8(2)
@@ -76,6 +79,12 @@ class CaseArrays:
     valid: dict[str, np.ndarray]
     missing: dict[str, np.ndarray]
 
+    #: Per-case measured call latency, and whether it was measured at all. Kept per case
+    #: rather than collapsed to a mean because parallel latency takes a MAX, and the mean
+    #: of maxima is not the max of means — see domain/latency.py.
+    latency: dict[str, np.ndarray] = field(default_factory=dict)
+    latency_measured: dict[str, np.ndarray] = field(default_factory=dict)
+
     @property
     def case_count(self) -> int:
         return len(self.case_ids)
@@ -95,6 +104,8 @@ class CaseArrays:
         scores = {name: np.zeros(n, dtype=np.float64) for name in definitions}
         valid = {name: np.zeros(n, dtype=bool) for name in definitions}
         missing = {name: np.ones(n, dtype=bool) for name in definitions}
+        latency = {name: np.zeros(n, dtype=np.float64) for name in definitions}
+        timed = {name: np.zeros(n, dtype=bool) for name in definitions}
 
         for row, case in enumerate(cases):
             seen: set[str] = set()
@@ -107,9 +118,15 @@ class CaseArrays:
                 if result.error is None and result.score is not None:
                     valid[name][row] = True
                     scores[name][row] = result.score
+                # A timing counts even on an errored call: the call happened and it took
+                # that long, which is exactly what a latency budget has to survive.
+                if result.latency_ms is not None:
+                    timed[name][row] = True
+                    latency[name][row] = result.latency_ms
 
         return cls(
-            case_ids=case_ids, unsafe=unsafe, scores=scores, valid=valid, missing=missing
+            case_ids=case_ids, unsafe=unsafe, scores=scores, valid=valid, missing=missing,
+            latency=latency, latency_measured=timed,
         )
 
 
@@ -336,3 +353,121 @@ def signature_from_codes(codes: np.ndarray, excluded: np.ndarray) -> tuple[str, 
     """The per-case verdict string tuple `selection.deduplicate_by_behaviour` keys on."""
     merged = np.where(excluded, np.uint8(3), codes)
     return tuple(_OUTCOME_NAMES[merged])
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Latency, per case
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _charges(
+    arrays: CaseArrays,
+    names: Sequence[str],
+    definitions: Mapping[str, GuardrailDefinition],
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """One (latency, measured) pair per distinct call group, slowest signal winning.
+
+    The array form of `latency._charges_for_case`: signals sharing a call group are one
+    call, and a group nobody timed is absent from the list rather than present as zero.
+    """
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        definition = definitions.get(name)
+        if definition is None:
+            continue
+        groups.setdefault(definition.call_group_key, []).append(name)
+
+    charges: list[tuple[np.ndarray, np.ndarray]] = []
+    for members in groups.values():
+        total = np.zeros(arrays.case_count, dtype=np.float64)
+        measured = np.zeros(arrays.case_count, dtype=bool)
+        for name in members:
+            values = arrays.latency.get(name)
+            timed = arrays.latency_measured.get(name)
+            if values is None or timed is None:
+                continue
+            # Slowest wins within the group; an untimed signal never lowers it.
+            total = np.where(timed & (~measured | (values > total)), values, total)
+            measured = measured | timed
+        if measured.any():
+            charges.append((total, measured))
+    return charges
+
+
+def stage_latency_arrays(
+    arrays: CaseArrays,
+    names: Sequence[str],
+    definitions: Mapping[str, GuardrailDefinition],
+    *,
+    parallel: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    """(latency, measured) per case for one stage: max across parallel calls, else sum."""
+    total = np.zeros(arrays.case_count, dtype=np.float64)
+    measured = np.zeros(arrays.case_count, dtype=bool)
+    for values, timed in _charges(arrays, names, definitions):
+        if parallel:
+            total = np.where(timed & (~measured | (values > total)), values, total)
+        else:
+            total = total + np.where(timed, values, 0.0)
+        measured = measured | timed
+    return total, measured
+
+
+def flat_latency_arrays(
+    arrays: CaseArrays,
+    names: Sequence[str],
+    definitions: Mapping[str, GuardrailDefinition],
+) -> tuple[np.ndarray, np.ndarray]:
+    """A flat policy is one parallel stage that always runs."""
+    return stage_latency_arrays(arrays, names, definitions, parallel=True)
+
+
+def route_latency_arrays(
+    arrays: CaseArrays,
+    definitions: Mapping[str, GuardrailDefinition],
+    policy: Policy,
+    stages_run: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-case route latency: the stages that ran, added up.
+
+    Skipped stages cost nothing; an untimed stage contributes nothing rather than
+    voiding the route — the same rule the pure path follows.
+    """
+    total = np.zeros(arrays.case_count, dtype=np.float64)
+    measured = np.zeros(arrays.case_count, dtype=bool)
+    for index, stage in enumerate(policy.stages):
+        values, timed = stage_latency_arrays(
+            arrays,
+            [binding.name for binding in stage.guardrails],
+            definitions,
+            parallel=stage.parallel,
+        )
+        contributes = stages_run[index] & timed
+        total = total + np.where(contributes, values, 0.0)
+        measured = measured | contributes
+    return total, measured
+
+
+def _nearest_rank(ordered: np.ndarray, percentile_value: int) -> float:
+    """`route_cost.percentile`, on a sorted array: a latency some request actually had."""
+    index = max(
+        0, min(len(ordered) - 1, round((percentile_value / 100) * len(ordered)) - 1)
+    )
+    return float(ordered[index])
+
+
+def summarise_latency_arrays(
+    latency: np.ndarray, measured: np.ndarray
+) -> tuple[float | None, float | None, float | None, float | None, int]:
+    """(mean, p50, p95, p99, timed case count) over the measured requests only."""
+    sample = latency[measured]
+    if sample.size == 0:
+        return (None, None, None, None, 0)
+    ordered = np.sort(sample)
+    return (
+        float(sample.mean()),
+        _nearest_rank(ordered, 50),
+        _nearest_rank(ordered, 95),
+        _nearest_rank(ordered, 99),
+        int(sample.size),
+    )

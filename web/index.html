@@ -1,13 +1,340 @@
 <!doctype html>
-<!-- Temporary stub: redirects to the docs until the real landing page lands here. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="refresh" content="0; url=docs/">
-  <title>guardopt</title>
-  <link rel="canonical" href="docs/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>guardopt — maximise accuracy, minimise cost and latency</title>
+  <meta name="description" content="Stacking guardrails is the reflex, but each one compounds false positives, cost, and latency. guardopt optimises the best combination for your system to maximise accuracy while minimising cost and latency.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
-  <p><a href="docs/">guardopt documentation →</a></p>
+
+<!-- ═══════════════ HERO · A1 the swarm ═══════════════ -->
+<header class="hero" id="hero">
+  <canvas id="hero-canvas" aria-hidden="true"></canvas>
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#"><svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true"><path d="M32 2 L62 12.5 V31 C62 47 51.5 57.5 32 62 C12.5 57.5 2 47 2 31 V12.5 Z" fill="#10201B" stroke="#2C3B34" stroke-width="2.5"/><g stroke-linecap="round"><line x1="17" y1="12" x2="17" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="32" y1="12" x2="32" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="47" y1="12" x2="47" y2="48" stroke="#2C3B34" stroke-width="4"/><line x1="17" y1="17" x2="17" y2="48" stroke="#5BC4AD" stroke-width="4" opacity="0.4"/><line x1="32" y1="43" x2="32" y2="48" stroke="#DCAF5A" stroke-width="4" opacity="0.4"/><line x1="47" y1="43" x2="47" y2="48" stroke="#E2734F" stroke-width="4" opacity="0.4"/></g><circle cx="17" cy="17" r="5.5" fill="#5BC4AD" stroke="#10201B" stroke-width="2"/><circle cx="32" cy="43" r="5.5" fill="#DCAF5A" stroke="#10201B" stroke-width="2"/><circle cx="47" cy="43" r="5.5" fill="#E2734F" stroke="#10201B" stroke-width="2"/></svg><span>guard<span class="opt">opt</span></span></a>
+    <div class="links">
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/govtech-responsibleai/guardopt">GitHub</a>
+    </div>
+    </div>
+  </nav>
+
+  <div class="hero-copy">
+    <h1>Maximise <em>accuracy</em>.<br>Minimise <span class="min">cost and latency</span>.</h1>
+    <p class="sub">Stacking guardrails is the reflex, but each one compounds false
+    positives, cost, and latency. guardopt optimises the best combination for your
+    system to maximise accuracy while minimising cost and latency.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="docs/">Get started</a>
+      <a class="btn ghost" href="#sim">See it route traffic ↓</a>
+      <span class="pip"><code id="pip-cmd">pip install git+https://github.com/govtech-responsibleai/guardopt</code><button id="pip-copy" type="button" aria-label="Copy install command">copy</button></span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ═══════════════ the problem · the stacking tax ═══════════════ -->
+<section class="block" id="stack">
+  <div class="wrap">
+    <div class="kicker">the problem · the stacking tax</div>
+    <h2>Stack more guardrails, block more good users.</h2>
+    <p class="lede">The reflex is to add another guardrail. But guardrails compose as an
+    <b>OR</b> — a request is blocked the moment <em>any</em> of them fires. Stack five and
+    you don't get five times the safety. You get the <b>sum</b> of their bills, the latency
+    of the <b>slowest</b>, and every one of their false positives, <b>multiplied</b>. Here
+    are five requests — four legitimate, one genuinely unsafe (the ember dot) — trying to
+    get through.</p>
+
+    <div class="stack-grid">
+      <div class="stack-main">
+        <svg id="stack-svg" role="img"
+          aria-label="Five requests flowing left-to-right through a stack of guardrails. Three legitimate prompts are each wrongly blocked by a different guardrail, one unsafe prompt is correctly caught, and one legitimate prompt reaches the app."></svg>
+        <p class="smallprint">Each guardrail is individually reasonable, catching its word
+        out of context (“kill”, “drop”, an email address). But OR them together and three of
+        four legitimate prompts are blocked — each by a different guardrail — while the
+        genuinely unsafe request (the ember dot) is correctly caught and one clean prompt
+        makes it through. Now toggle guardrails on the right and watch the trade flip both
+        ways: pull the guardrail that catches the threat and it slips through to the app;
+        pile them all on and good traffic drowns. <a href="#sim">guardopt's answer is
+        below ↓</a> — don't just OR your guardrails; screen the easy traffic cheaply and
+        escalate only the genuinely uncertain.</p>
+      </div>
+
+      <aside class="stack-panel">
+        <div class="stack-stats">
+          <div class="stack-stat bad">
+            <div class="v" id="stack-blocked">—</div>
+            <div class="l">Legit prompts blocked</div>
+            <div class="s">every one a false positive</div>
+          </div>
+          <div class="stack-stat bad">
+            <div class="v" id="stack-fp">—</div>
+            <div class="l">Safe traffic blocked</div>
+            <div class="s">1 − ∏(1 − fpᵢ)</div>
+          </div>
+          <div class="stack-stat">
+            <div class="v" id="stack-cost">—</div>
+            <div class="l">Cost / 1k requests</div>
+            <div class="s">you pay Σ costᵢ</div>
+          </div>
+          <div class="stack-stat">
+            <div class="v" id="stack-latency">—</div>
+            <div class="l">Added latency</div>
+            <div class="s">wait for max latencyᵢ</div>
+          </div>
+        </div>
+        <div class="stack-guards-wrap">
+          <div class="stack-guards-title">Guardrails in the stack</div>
+          <div class="modes" id="stack-guards" role="group" aria-label="Toggle guardrails in the stack"></div>
+        </div>
+        <p class="smallprint">Each guardrail runs on <em>every</em> request — so the cost is
+        the sum, the latency is the slowest, and the false-block rate is one minus the
+        chance <em>all</em> of them stay quiet. That last number climbs faster than the
+        stack grows.</p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ the simulation lab ═══════════════ -->
+<section class="block" id="sim">
+  <div class="wrap">
+    <div class="kicker">the live simulation</div>
+    <h2>Watch a policy route real traffic.</h2>
+    <p class="lede">Requests flow left to right. The dotted line is the <b>cheap
+    screen</b>; its two draggable handles set where it blocks and where it escalates.
+    The amber band between them is the traffic the screen cannot decide — and
+    <b>only that band</b> travels on to the expensive <b>judge</b>. Every number
+    below is computed live from the routing you are watching, using the parameters
+    you set on the right.</p>
+
+    <div class="sim-legend">
+      <span><i class="dot safe"></i><b>Teal dot</b> — a safe request.</span>
+      <span><i class="dot risky"></i><b>Ember dot</b> — a risky request.</span>
+      <span><i class="dot unc"></i><b>Amber dot</b> — uncertain: inside the band, on
+        its way to the judge. These dots visibly slow down — that crawl is the
+        judge's latency.</span>
+      <span><i class="dot blocked"></i><b>Red burst</b> — blocked at a gate.</span>
+    </div>
+
+    <div class="sim-grid">
+      <div class="sim-main">
+        <div class="sim-stage" id="sim-stage">
+          <canvas id="sim-canvas" aria-label="Live simulation: requests flowing through a two-stage guardrail policy with draggable thresholds."></canvas>
+          <svg id="sim-overlay" aria-hidden="true"></svg>
+        </div>
+        <div id="sim-fallback" class="smallprint" style="display:none">Interactive
+        simulation needs WebGL. The numbers still hold: a searched cascade answers
+        confident traffic at the cheap screen and sends only the uncertain band to
+        the judge — on our benchmark datasets that cut the bill by up to 98.4% at
+        matched accuracy.</div>
+
+        <div class="sim-meters">
+          <div class="meter-group">
+            <div class="meter-title">💸 Cost per 1k requests</div>
+            <div class="meter-row">
+              <div class="meter"><div class="label">judge everything</div>
+                <div class="value dim" id="sim-cost-flat">$1.61</div></div>
+              <div class="meter"><div class="label">this cascade</div>
+                <div class="value" id="sim-cost-cascade">—</div></div>
+              <div class="meter"><div class="label">saving</div>
+                <div class="value save" id="sim-cost-save">—</div></div>
+              <div class="meter"><div class="label">escalate</div>
+                <div class="value" id="sim-esc">—</div></div>
+            </div>
+          </div>
+          <div class="meter-group">
+            <div class="meter-title">⏱ Latency per request</div>
+            <div class="meter-row">
+              <div class="meter"><div class="label">judge everything</div>
+                <div class="value dim" id="sim-lat-flat">—</div></div>
+              <div class="meter"><div class="label">cascade, mean</div>
+                <div class="value" id="sim-lat-mean">—</div></div>
+              <div class="meter"><div class="label">vs judge-everything</div>
+                <div class="value save" id="sim-lat-save">—</div></div>
+              <div class="meter"><div class="label">cascade, p95</div>
+                <div class="value" id="sim-lat-p95">—</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="smallprint">The p95 is the honest fine print: an escalated request
+        waits for the screen <em>and</em> the judge. Whether that makes the tail worse
+        depends entirely on how much traffic escalates — and on our benchmarks it went
+        both ways. Where almost nothing escalates the cascade was faster across the
+        whole distribution (UnSmile: mean −47%, p95 −65%); where most traffic escalates
+        it was slower throughout (ToxicChat: mean +52%, p95 +40%, for a 5% cost saving).
+        Cascades are not free. guardopt measures both numbers per request and reports
+        them on every cascade it recommends, so the trade is visible before you ship
+        it.</p>
+      </div>
+
+      <aside class="sim-panel">
+        <div class="modes" role="group" aria-label="Policy shape">
+          <button class="chip" id="sim-mode-cascade" aria-pressed="true" type="button">searched cascade</button>
+          <button class="chip" id="sim-mode-flat" aria-pressed="false" type="button">judge everything</button>
+        </div>
+
+        <fieldset class="scenarios">
+          <legend>Scenarios</legend>
+          <label class="scenario"><input type="radio" name="sim-scenario" id="scenario-typical">
+            <span><b>Typical traffic</b><small>Safe and risky mostly separate, a real
+            overlap in the middle. A modest band escalates; most of the bill
+            disappears.</small></span></label>
+          <label class="scenario"><input type="radio" name="sim-scenario" id="scenario-easy">
+            <span><b>Easy traffic (UnSmile-like)</b><small>Cleanly separable — the
+            screen is nearly always sure. Almost nothing escalates; the saving
+            approaches the 98% we measured at matched accuracy.</small></span></label>
+          <label class="scenario"><input type="radio" name="sim-scenario" id="scenario-adversarial">
+            <span><b>Adversarial (ToxicChat-like)</b><small>Heavy overlap — the screen
+            genuinely cannot tell. Most traffic escalates and the honest saving is
+            small. Cascades are not magic; here the judge must simply run.</small></span></label>
+        </fieldset>
+
+        <div class="sliders">
+          <label class="slider"><span class="slider-head"><span>screen cost / call</span>
+            <output id="sim-screen-cost-value"></output></span>
+            <input type="range" id="sim-screen-cost" min="0" max="1000" step="1"></label>
+          <label class="slider"><span class="slider-head"><span>judge cost / call</span>
+            <output id="sim-judge-cost-value"></output></span>
+            <input type="range" id="sim-judge-cost" min="0" max="1000" step="1"></label>
+          <label class="slider"><span class="slider-head"><span>screen latency</span>
+            <output id="sim-screen-lat-value"></output></span>
+            <input type="range" id="sim-screen-lat" min="0" max="1000" step="1"></label>
+          <label class="slider"><span class="slider-head"><span>judge latency</span>
+            <output id="sim-judge-lat-value"></output></span>
+            <input type="range" id="sim-judge-lat" min="0" max="1000" step="1"></label>
+          <label class="slider"><span class="slider-head"><span>how separable is your traffic?</span>
+            <output id="sim-sep-value"></output></span>
+            <input type="range" id="sim-sep" min="0" max="1000" step="1"></label>
+        </div>
+
+        <p class="smallprint">Defaults are our measured three-tier fleet
+        ($0.031 vs $1.61 per 1k; 1.2s vs 2.5s). Moving the separability slider
+        deselects the scenario — you are then modelling your own traffic.</p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ the search · how the cascade is found ═══════════════ -->
+<section class="block" id="search">
+  <div class="wrap">
+    <div class="kicker">the search</div>
+    <h2>How guardopt finds the cascade.</h2>
+    <p class="lede">No guessing, and no grid of arbitrary numbers. guardopt reads the
+    thresholds out of your own labelled traffic, scores every legal cascade the same way,
+    and keeps only the ones nothing beats. Here is that search in five steps — press play,
+    or walk through it yourself.</p>
+
+    <div class="search-grid">
+      <div class="search-main">
+        <svg id="search-svg" role="img"
+          aria-label="A five-step walkthrough of guardopt's search: scored labelled traffic; candidate thresholds drawn at label transitions; one cascade replayed and scored; every cascade enumerated onto a Pareto frontier; and three profiles picked."></svg>
+        <p class="smallprint" id="search-caption"></p>
+      </div>
+
+      <aside class="search-panel">
+        <ol class="search-steps" id="search-steps">
+          <li class="s-step"><span class="s-num">1</span> Score your labelled traffic</li>
+          <li class="s-step"><span class="s-num">2</span> Draw candidates where labels flip</li>
+          <li class="s-step"><span class="s-num">3</span> Replay &amp; score one cascade</li>
+          <li class="s-step"><span class="s-num">4</span> Enumerate &amp; keep the frontier</li>
+          <li class="s-step"><span class="s-num">5</span> Pick Minimal · Balanced · Strict</li>
+        </ol>
+        <div class="search-controls">
+          <button class="btn primary" id="search-run" type="button">▶ Run the search</button>
+          <div class="search-nav">
+            <button class="chip" id="search-prev" type="button">◀ back</button>
+            <button class="chip" id="search-next" type="button">next ▶</button>
+          </div>
+        </div>
+        <div id="search-readout"></div>
+      </aside>
+    </div>
+
+    <p class="smallprint">The dataset is synthetic — your traffic is the thing worth
+    measuring — but the machinery is the real optimiser: candidates drawn from label
+    transitions, exact enumeration (or a named refusal, never a silent sample), a Pareto
+    keep, and F-score picks with honest error bars.
+    <a href="#quickstart">Run it on your own scores ↓</a></p>
+  </div>
+</section>
+
+<!-- ═══════════════ quickstart ═══════════════ -->
+<section class="block" id="quickstart">
+  <div class="wrap">
+    <div class="kicker">five minutes</div>
+    <h2>Scores in. Frontier out.</h2>
+    <p class="lede">No framework to adopt, no service to run. If your guardrail scores
+    are already in a spreadsheet, you can even run it directly from the CLI.</p>
+
+    <div class="quick-grid">
+      <pre class="code"><span class="c"># pip install git+https://github.com/govtech-responsibleai/guardopt</span>
+<span class="k">from</span> guardopt <span class="k">import</span> ScoreMatrix, optimise
+
+matrix = ScoreMatrix.from_csv(<span class="s">"scores.csv"</span>, guardrails)
+result = optimise(matrix)
+
+<span class="k">for</span> rec <span class="k">in</span> result.recommendations:   <span class="c"># Minimal · Balanced · Strict</span>
+    <span class="k">print</span>(rec.explanation.limitations)  <span class="c"># honesty first, always</span>
+
+result.recommendations[1].policy.to_file(<span class="s">"policy.json"</span>)</pre>
+      <div class="quick-points">
+        <div><b>🎯 One search, every shape.</b> Flat policies and banded cascades compete
+          in one space — the optimiser discovers whether routing wins on <i>your</i>
+          data, rather than assuming it.</div>
+        <div><b>🧾 Numbers you can defend.</b> Wilson intervals on every rate, a holdout
+          split that catches the winner's curse, bootstrap stability on every pick, and
+          a distribution-free bound on the deployed miss rate.</div>
+        <div><b>⚡ A runtime that matches.</b> The policy file is enforced by a
+          fail-closed router proven to decide exactly as measured — plus shadow mode,
+          drift monitoring, and exporters for LiteLLM and friends.</div>
+        <div><a class="btn ghost" href="docs/">Read the docs →</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>🛡️ guardopt · MIT · GovTech Responsible AI</span>
+    <span><a href="docs/">Documentation</a> · <a href="https://github.com/govtech-responsibleai/guardopt">GitHub</a> · <a href="docs/methodology/">Methodology</a></span>
+  </div>
+</footer>
+
+<script type="module">
+  import { initHero, initSimLab } from "./js/swarm.js?v=5";
+  import { initStack } from "./js/stack.js?v=5";
+  import { initSearch } from "./js/search.js?v=5";
+
+  // Test hook: ?compact shrinks the hero so a headless full-page capture can see
+  // every section at once. Harmless in normal use.
+  if (new URLSearchParams(window.location.search).has("compact")) {
+    document.getElementById("hero").style.minHeight = "480px";
+  }
+
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  initHero(reduced);
+  initStack(reduced);
+  initSimLab(reduced);
+  initSearch(reduced);
+
+  document.getElementById("pip-copy").addEventListener("click", async (event) => {
+    try {
+      await navigator.clipboard.writeText(document.getElementById("pip-cmd").textContent);
+      event.target.textContent = "copied";
+      setTimeout(() => { event.target.textContent = "copy"; }, 1500);
+    } catch { /* clipboard unavailable — the text is selectable anyway */ }
+  });
+</script>
+
 </body>
 </html>

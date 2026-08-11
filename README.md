@@ -1,8 +1,10 @@
 <div align="center">
 
-# 🛡️ guardopt
-
-**Find the guardrail policy that blocks what matters and lets the rest through.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/lockup-dark.png">
+  <img src="assets/brand/lockup-light.png" width="560"
+       alt="guardopt — a shield holding three faders: accuracy at maximum, cost and latency at minimum. Maximise accuracy. Minimise cost and latency.">
+</picture>
 
 [![tests](https://img.shields.io/badge/tests-852%20passing-2ea44f)](https://github.com/govtech-responsibleai/guardopt)
 [![python](https://img.shields.io/badge/python-3.11%2B-3776ab?logo=python&logoColor=white)](https://github.com/govtech-responsibleai/guardopt/blob/main/pyproject.toml)
@@ -61,7 +63,7 @@ category an average hides, **isotonic calibration** so every guardrail speaks P(
 **distribution-free bound** on the deployed false-negative rate, and a **retune loop**
 that promotes a new policy only when it beats the incumbent out of sample.
 
-Scores already in a spreadsheet? Skip Python entirely:
+Scores already in a spreadsheet? Run it straight from the CLI — no Python to write:
 
 ```bash
 guardopt optimise scores.csv --guardrails guardrails.json --out report.md --html report.html
@@ -202,8 +204,13 @@ pip install -e ".[dev]"
 make check        # ruff + mypy + pytest — what CI used to be
 ```
 
-There is no CI runner; `make check` before pushing is the contract. The docs site
-deploys manually with `make docs-deploy`.
+There is no CI runner; `make check` before pushing is the contract.
+
+The website is the landing page in `web/` served at the site root, with the MkDocs build
+under `/docs`. Preview the two together exactly as they deploy with `make preview`
+(<http://localhost:8000/>), and publish both to the `gh-pages` branch with
+`make docs-deploy`. The published site goes live once GitHub Pages is enabled for the repo
+(Settings → Pages → Source: `gh-pages` branch, `/root`).
 
 ## 📄 Licence
 
