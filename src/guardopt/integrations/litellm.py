@@ -24,7 +24,11 @@ from dataclasses import dataclass
 
 from guardopt.domain.inputs import GuardrailDefinition
 from guardopt.domain.policy import Policy
-from guardopt.integrations.common import definitions_literal, require_definitions_for
+from guardopt.integrations.common import (
+    definitions_literal,
+    require_definitions_for,
+    safe_for_generated_source,
+)
 
 __all__ = ["LiteLLMExport", "export_litellm"]
 
@@ -171,12 +175,16 @@ def export_litellm(
         raise ValueError(f"mode must be one of {_VALID_MODES}, got {mode!r}")
     require_definitions_for(policy, definitions)
 
+    # Names are sanitised before templating: interpolated raw into the generated module's
+    # docstring / string literals, a crafted name would break out and inject code that
+    # runs when the caller imports the module. `policy.to_json()` is JSON-escaped and
+    # `definitions_literal` uses `!r`, so those two are already safe.
     guard_names = ", ".join(policy.enabled_names)
     module = _MODULE_TEMPLATE.format(
-        policy_name=policy.name,
+        policy_name=safe_for_generated_source(policy.name),
         policy_json=policy.to_json(),
         definitions=definitions_literal(policy, definitions),
-        guard_names=guard_names,
+        guard_names=safe_for_generated_source(guard_names),
     ).replace("__HOOK__", _HOOKS[mode])
     config = _CONFIG_TEMPLATE.format(
         guardrail_name=guardrail_name, module_name=module_name, mode=mode

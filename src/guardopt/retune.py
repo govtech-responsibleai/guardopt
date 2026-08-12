@@ -23,8 +23,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from guardopt.domain.diff import PolicyDiff, diff_policies
-from guardopt.domain.metrics import f05 as f05_of, f1 as f1_of, f2 as f2_of
-from guardopt.domain.metrics import build_binary_report
+from guardopt.domain.metrics import PROFILE_BETA, build_binary_report, profile_objective
 from guardopt.domain.policy import Policy
 from guardopt.domain.route import evaluate_staged_policy_on_case
 from guardopt.domain.types import RecommendationProfile
@@ -32,17 +31,11 @@ from guardopt.optimise import (
     OptimisationResult,
     OptimiserRequest,
     ProfileRecommendation,
-    _split_for_holdout,
+    split_for_holdout,
     optimise,
 )
 
 __all__ = ["RetuneResult", "RetuneVerdict", "retune"]
-
-_OBJECTIVE = {
-    RecommendationProfile.MINIMAL: f05_of,
-    RecommendationProfile.BALANCED: f1_of,
-    RecommendationProfile.STRICT: f2_of,
-}
 
 
 class RetuneVerdict(str, Enum):
@@ -110,7 +103,10 @@ def retune(
 
     result = optimise(request)
     definitions = request.guardrail_by_name
-    _, holdout_cases = _split_for_holdout(request)
+    # The public, documented-deterministic split: `optimise` above used the identical one
+    # internally (same seed), so incumbent and candidate are judged on exactly the cases
+    # the fresh search never optimised against.
+    _, holdout_cases = split_for_holdout(request)
 
     candidate = next(
         (r for r in result.recommendations if r.profile is profile), None
@@ -145,7 +141,8 @@ def retune(
             optimisation=result,
         )
 
-    objective = _OBJECTIVE[profile]
+    objective = profile_objective(profile)
+    objective_label = f"F{PROFILE_BETA[profile]:g}"
 
     def holdout_objective(policy: Policy) -> float | None:
         evaluations = [
@@ -171,7 +168,7 @@ def retune(
         return "unmeasurable" if value is None else f"{value:.3f}"
 
     comparison = (
-        f"Holdout {objective.__name__.replace('_of', '')} ({len(holdout_cases)} "
+        f"Holdout {objective_label} ({len(holdout_cases)} "
         f"cases): candidate {shown(candidate_score)} vs incumbent "
         f"{shown(incumbent_score)}."
     )

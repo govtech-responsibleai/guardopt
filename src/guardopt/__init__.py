@@ -16,6 +16,7 @@ who just wants to analyse a spreadsheet of scores should not pull in an HTTP sta
 """
 
 from guardopt.domain.constraints import Constraints, ObjectiveWeights, best_by_objective
+from guardopt.domain.errors import GuardoptError, GuardoptInputError, SearchSpaceError
 from guardopt.domain.inputs import (
     GuardrailDefinition,
     GuardrailTestResult,
@@ -71,6 +72,8 @@ __all__ = [
     "CaseChange",
     "Constraints",
     "ExpectedAction",
+    "GuardoptError",
+    "GuardoptInputError",
     "GuardrailBinding",
     "GuardrailDefinition",
     "GuardrailOutcome",
@@ -95,6 +98,7 @@ __all__ = [
     "ScoreDirection",
     "ScoreMatrix",
     "SearchMethod",
+    "SearchSpaceError",
     "SliceMetrics",
     "SliceReport",
     "Stage",

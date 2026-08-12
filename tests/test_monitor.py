@@ -45,11 +45,15 @@ def _router(aggregator: DecisionAggregator, value: float | str) -> GuardrailRout
     )
 
 
+#: The outcome_signature is a `bytes` of codes now, not a tuple of value strings.
+_NAME_TO_CODE = {"pass": 0, "warning": 1, "fail": 2, "excluded": 3}
+
+
 class _Signed:
     """A stand-in EvaluatedPolicy: `simulated_shares` reads only the signature."""
 
     def __init__(self, *entries: str) -> None:
-        self.outcome_signature = entries
+        self.outcome_signature = bytes(_NAME_TO_CODE[entry] for entry in entries)
 
 
 def test_simulated_shares_read_the_signature_and_drop_excluded():

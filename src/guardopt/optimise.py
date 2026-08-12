@@ -65,7 +65,19 @@ from guardopt.domain.search import (
 from guardopt.domain.selection import select_profiles
 from guardopt.domain.simulation import evaluate_policy
 from guardopt.domain.stability import StabilityReport, bootstrap_selection_stability
-from guardopt.domain.types import ExpectedAction, RecommendationProfile, SearchMethod
+from guardopt.domain.types import (
+    ExpectedAction,
+    MissingResultPolicy,
+    RecommendationProfile,
+    SearchMethod,
+)
+from guardopt.domain.vectorised import (
+    CaseArrays,
+    binary_report_from_codes,
+    flat_outcome_codes,
+    intervention_report_from_codes,
+    staged_outcome_codes,
+)
 from guardopt.domain.warning_bands import apply_warning_ladder
 
 __all__ = [
@@ -73,6 +85,8 @@ __all__ = [
     "OptimisationResult",
     "ProfileRecommendation",
     "optimise",
+    "populate_case_ids",
+    "split_for_holdout",
 ]
 
 
@@ -150,7 +164,7 @@ class OptimisationResult:
     frontier: tuple[EvaluatedPolicy, ...] = ()
 
 
-def _split_for_holdout(
+def split_for_holdout(
     request: OptimiserRequest,
 ) -> tuple[OptimiserRequest, tuple[TestCaseGuardrailResults, ...]]:
     """Deterministic, stratified train/holdout split — or a named refusal.
@@ -160,6 +174,12 @@ def _split_for_holdout(
     Refused when the holdout would hold fewer unsafe cases than the same threshold below
     which the explanations already call percentages "rough" — holdout numbers too noisy
     to mean anything are worse than none, because they look like a check that passed.
+
+    **Public and contractually deterministic.** Given the same `request` (same cases, same
+    `holdout_seed`) this returns the byte-identical split every time. `retune` relies on
+    that: it calls this to get the holdout it judges promote/keep on, and `optimise`
+    searches on the train side of the very same split — a public function with a stated
+    determinism guarantee rather than two independent recomputations of a private one.
     """
     fraction = request.config.holdout_fraction
     assert fraction is not None  # caller gates on this
@@ -194,6 +214,11 @@ def _split_for_holdout(
     train = [c for c in request.test_cases if c.test_case_id not in holdout_ids]
     holdout = tuple(c for c in request.test_cases if c.test_case_id in holdout_ids)
     return request.model_copy(update={"test_cases": train}), holdout
+
+
+#: Back-compat alias: the split was private until `retune` needed to share the exact one
+#: `optimise` uses. Kept so any in-tree caller of the old name keeps working.
+_split_for_holdout = split_for_holdout
 
 
 def _holdout_evaluation(
@@ -322,6 +347,56 @@ def _artifact_for(
     return Policy.from_candidate(evaluated.candidate, definitions, name=profile.value)
 
 
+def _with_case_ids(
+    evaluated: EvaluatedPolicy,
+    arrays: CaseArrays,
+    definitions: Mapping[str, GuardrailDefinition],
+    missing_policy: MissingResultPolicy,
+) -> EvaluatedPolicy:
+    """Fill in the per-case ID lists the search skipped, for one recommended policy.
+
+    The search builds counts and rates but not the eight ID tuples per candidate — those
+    are read only by the explanation and the report, of the ~3 policies actually
+    recommended (F10). This recomputes the codes for one policy and rebuilds its reports
+    with IDs; counts and rates are unchanged, so nothing measured moves.
+    """
+    if evaluated.policy is not None:
+        codes, excluded, errored, _ = staged_outcome_codes(
+            arrays, definitions, evaluated.policy, missing_policy
+        )
+    else:
+        codes, excluded, errored = flat_outcome_codes(
+            arrays, definitions, evaluated.candidate, missing_policy
+        )
+    return replace(
+        evaluated,
+        binary=binary_report_from_codes(arrays, codes, excluded, with_ids=True),
+        intervention=intervention_report_from_codes(
+            arrays, codes, excluded, errored, with_ids=True
+        ),
+    )
+
+
+def populate_case_ids(
+    evaluated: EvaluatedPolicy, request: OptimiserRequest
+) -> EvaluatedPolicy:
+    """Rebuild one policy's per-case ID lists against `request`'s cases.
+
+    The search omits the eight per-case ID tuples per candidate for speed and memory
+    (F10); `optimise` fills them in for the policies it recommends. A caller holding a
+    bare `EvaluatedPolicy` straight from `search_policies` — whose `binary`/`intervention`
+    therefore carry counts and rates but empty ID lists — calls this to get the IDs the
+    Markdown/HTML report and the explanation read. Counts and rates are unchanged.
+    """
+    arrays = CaseArrays.build(request.guardrail_by_name, request.test_cases)
+    return _with_case_ids(
+        evaluated,
+        arrays,
+        request.guardrail_by_name,
+        request.config.treat_missing_as,
+    )
+
+
 def optimise(
     problem: OptimiserRequest | ScoreMatrix,
     *,
@@ -357,7 +432,7 @@ def optimise(
 
     holdout_cases: tuple[TestCaseGuardrailResults, ...] = ()
     if request.config.holdout_fraction is not None:
-        search_request, holdout_cases = _split_for_holdout(request)
+        search_request, holdout_cases = split_for_holdout(request)
     else:
         search_request = request
 
@@ -414,8 +489,18 @@ def optimise(
         selection.selections, definitions, PolicyEvaluator(search_request).evaluate
     )
 
+    # The search skipped the per-case ID lists (F10); fill them in for the handful of
+    # policies that are actually recommended, so the explanation and report can name the
+    # cases behind every cell. Built once over the search cases these were measured on.
+    report_arrays = CaseArrays.build(definitions, search_request.test_cases)
+    treat_missing = search_request.config.treat_missing_as
+
     recommendations: list[ProfileRecommendation] = []
     for entry in ladder.selections:
+        entry = replace(
+            entry,
+            policy=_with_case_ids(entry.policy, report_arrays, definitions, treat_missing),
+        )
         explanation = explain_selection(entry, definitions, diagnostics)
 
         route_note = _staged_route_note(entry.policy, definitions, search_request)
@@ -444,7 +529,7 @@ def optimise(
                 evaluated=entry.policy,
                 explanation=explanation,
                 used_fallback=entry.used_fallback,
-                fallback_reason=getattr(entry, "fallback_reason", None),
+                fallback_reason=entry.fallback_reason,
                 policy=_artifact_for(entry.policy, definitions, entry.profile),
                 holdout=holdout_result,
             )

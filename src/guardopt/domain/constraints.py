@@ -28,6 +28,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from guardopt.domain.evaluation import RankablePolicy
+
 __all__ = [
     "Constraints",
     "ObjectiveChoice",
@@ -92,30 +94,30 @@ def _shortfall(value: float | None, bar: float, *, at_least: bool) -> float | No
     return None if value <= bar else value - bar
 
 
-def violations(policy: Any, constraints: Constraints) -> tuple[str, ...]:
+def violations(policy: RankablePolicy, constraints: Constraints) -> tuple[str, ...]:
     """Every bar this policy misses, named, in a stable order.
 
     Named rather than counted: a refusal that does not say *which* bar was missed leaves
     the caller guessing between loosening the right constraint and the wrong one.
     """
     checks: list[tuple[str, float | None, float | None, bool]] = [
-        ("recall", getattr(policy, "recall", None), constraints.min_recall, True),
-        ("precision", getattr(policy, "precision", None), constraints.min_precision, True),
+        ("recall", policy.recall, constraints.min_recall, True),
+        ("precision", policy.precision, constraints.min_precision, True),
         (
             "false positive rate",
-            getattr(policy, "false_positive_rate", None),
+            policy.false_positive_rate,
             constraints.max_false_positive_rate,
             False,
         ),
         (
             "latency",
-            getattr(policy, "estimated_latency_ms", None),
+            policy.estimated_latency_ms,
             constraints.max_latency_ms,
             False,
         ),
         (
             "p95 latency",
-            getattr(policy, "p95_latency_ms", None),
+            policy.p95_latency_ms,
             constraints.max_p95_latency_ms,
             False,
         ),
@@ -138,24 +140,24 @@ def violations(policy: Any, constraints: Constraints) -> tuple[str, ...]:
     return tuple(found)
 
 
-def _total_shortfall(policy: Any, constraints: Constraints) -> float:
+def _total_shortfall(policy: RankablePolicy, constraints: Constraints) -> float:
     """How badly a policy misses, summed. Used only to rank relaxed fallbacks."""
     total = 0.0
     for value, bar, at_least in (
-        (getattr(policy, "recall", None), constraints.min_recall, True),
-        (getattr(policy, "precision", None), constraints.min_precision, True),
+        (policy.recall, constraints.min_recall, True),
+        (policy.precision, constraints.min_precision, True),
         (
-            getattr(policy, "false_positive_rate", None),
+            policy.false_positive_rate,
             constraints.max_false_positive_rate,
             False,
         ),
         (
-            getattr(policy, "estimated_latency_ms", None),
+            policy.estimated_latency_ms,
             constraints.max_latency_ms,
             False,
         ),
         (
-            getattr(policy, "p95_latency_ms", None),
+            policy.p95_latency_ms,
             constraints.max_p95_latency_ms,
             False,
         ),
@@ -168,22 +170,19 @@ def _total_shortfall(policy: Any, constraints: Constraints) -> float:
     return total
 
 
-def objective(policy: Any, weights: ObjectiveWeights) -> float:
+def objective(policy: RankablePolicy, weights: ObjectiveWeights) -> float:
     """A single score, lower being better. Only meaningful among policies you accept.
 
     An unmeasured latency is charged `UNMEASURED_LATENCY_PENALTY_MS` rather than zero. Zero
     would make an untimed policy the cheapest available and win on a number nobody has.
 
-    An unmeasured false-positive count gets the same never-flatter treatment, taken to
-    its limit: infinity, so the policy can never win the ranking. The old default was 0 —
-    the best possible value, handed to exactly the policy nobody could measure, in the
-    module whose stated rule is that an unmeasured metric never flatters.
+    The false-positive count is an ordinary integer off the confusion matrix — always
+    measured (a policy that blocked nothing has zero, not "unknown"), so unlike latency it
+    needs no penalty stand-in.
     """
-    false_positives = getattr(policy, "false_positives", None)
-    if false_positives is None:
-        return float("inf")
+    false_positives = policy.false_positives
 
-    latency = getattr(policy, "estimated_latency_ms", None)
+    latency = policy.estimated_latency_ms
     if latency is None:
         latency = UNMEASURED_LATENCY_PENALTY_MS
 

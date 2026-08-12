@@ -17,6 +17,7 @@ Sentinel stores — asserted as an exact key set, so a future field cannot slip 
 import re
 from collections.abc import Mapping, Sequence
 
+from guardopt.domain.errors import GuardoptInputError
 from guardopt.domain.inputs import GuardrailDefinition
 from guardopt.domain.simulation import PolicyCandidate
 from guardopt.domain.types import RecommendationProfile, ScoreDirection
@@ -102,12 +103,15 @@ def guardrails_given_a_silent_band(candidate: PolicyCandidate) -> tuple[str, ...
     return tuple(name for name, thresholds in candidate.entries if thresholds.warning is None)
 
 
-class PolicyNotExpressibleError(ValueError):
+class PolicyNotExpressibleError(GuardoptInputError, ValueError):
     """This simulated policy has no faithful Sentinel representation.
 
     Always raised rather than worked around. The alternatives are to emit a body Sentinel
     rejects, or to emit one it accepts that behaves differently from what was measured —
     and the second is worse, because it looks like it worked.
+
+    Keeps `ValueError` as a second base so existing `except ValueError` sites are
+    unaffected.
     """
 
 

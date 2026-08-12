@@ -26,6 +26,7 @@ from guardopt.domain.metrics_intervention import build_intervention_report
 from guardopt.domain.policy import GuardrailBinding, Policy, Stage
 from guardopt.domain.route import evaluate_staged_policy_on_case
 from guardopt.domain.route_cost import route_cost
+from guardopt.optimise import populate_case_ids
 from guardopt.domain.latency import route_latencies, summarise_latencies
 from guardopt.domain.search import (
     PolicyEvaluator,
@@ -53,6 +54,9 @@ from guardopt.domain.vectorised import (
 )
 
 _CODE_TO_VALUE = {0: "pass", 1: "warning", 2: "fail"}
+#: The inverse, extended with the excluded slot — the outcome_signature is now a `bytes`
+#: of these codes rather than a tuple of the value strings.
+_VALUE_TO_CODE = {"pass": 0, "warning": 1, "fail": 2, "excluded": 3}
 
 
 def _random_world(seed: int, guardrail_count: int = 3, case_count: int = 40):
@@ -151,8 +155,9 @@ def test_flat_parity(seed: int, missing_policy: MissingResultPolicy) -> None:
         assert intervention_report_from_codes(
             arrays, codes, excluded, errored
         ) == build_intervention_report(cases, pure)
-        assert signature_from_codes(codes, excluded) == tuple(
-            "excluded" if e.outcome is None else e.outcome.value for e in pure
+        assert signature_from_codes(codes, excluded) == bytes(
+            _VALUE_TO_CODE["excluded" if e.outcome is None else e.outcome.value]
+            for e in pure
         )
 
 
@@ -388,13 +393,16 @@ def test_flat_evaluator_full_surface_matches_pure() -> None:
         candidate = PolicyCandidate.of(
             {d.name: _random_thresholds(rng, d) for d in enabled}
         )
-        evaluated = evaluator.evaluate(candidate)
+        # The search omits per-case ID lists (F10); populate them as optimise does before
+        # comparing the FULL surface (IDs included) to the pure path.
+        evaluated = populate_case_ids(evaluator.evaluate(candidate), request)
 
         pure = evaluate_policy(by_name, candidate, cases, request.config.treat_missing_as)
         assert evaluated.binary == build_binary_report(cases, pure)
         assert evaluated.intervention == build_intervention_report(cases, pure)
-        assert evaluated.outcome_signature == tuple(
-            "excluded" if e.outcome is None else e.outcome.value for e in pure
+        assert evaluated.outcome_signature == bytes(
+            _VALUE_TO_CODE["excluded" if e.outcome is None else e.outcome.value]
+            for e in pure
         )
 
 

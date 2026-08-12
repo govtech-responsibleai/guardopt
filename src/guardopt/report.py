@@ -25,8 +25,21 @@ def _count(value: float | None) -> str:
     return "—" if value is None else f"{value:.3f}"
 
 
+def _code_span(value: str) -> str:
+    """Render a dataset value safely inside a Markdown inline code span.
+
+    Case IDs come straight from a CSV with no charset restriction. A backtick in one would
+    close the span and let whatever follows — `<img onerror=…>`, `[x](javascript:…)` — land
+    as raw markup, which a renderer that passes HTML through (a wiki, pandoc, mdBook) would
+    then execute. Stripping backticks (and flattening newlines, which also close a span)
+    keeps the value inert text inside the span; the HTML report already escapes everything.
+    """
+    cleaned = value.replace("`", "").replace("\r", " ").replace("\n", " ")
+    return f"`{cleaned}`"
+
+
 def _ids(ids: tuple[str, ...]) -> str:
-    return ", ".join(f"`{case_id}`" for case_id in ids) if ids else "none"
+    return ", ".join(_code_span(case_id) for case_id in ids) if ids else "none"
 
 
 def _summary_table(recommendations: tuple[ProfileRecommendation, ...]) -> list[str]:

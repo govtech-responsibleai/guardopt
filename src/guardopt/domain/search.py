@@ -20,6 +20,7 @@ from itertools import product
 
 import numpy as np
 
+from guardopt.domain.errors import SearchSpaceError
 from guardopt.domain.candidates import (
     behaviourally_distinct_pairs,
     default_pair,
@@ -28,19 +29,20 @@ from guardopt.domain.candidates import (
     generate_threshold_values,
     pairs_that_can_block,
 )
+from guardopt.domain.evaluation import (
+    EvaluatedPolicy,
+    SearchDiagnostics,
+    assemble_evaluated_policy,
+)
 from guardopt.domain.fanout import latency_by_call_group
 from guardopt.domain.inputs import GuardrailDefinition, OptimiserRequest
 from guardopt.domain.metrics import (
-    BinaryOutcomeReport,
-    ConfusionMatrix,
     f05,
     f1,
     f2,
-    false_positive_rate,
     precision,
     recall,
 )
-from guardopt.domain.metrics_intervention import InterventionReport
 from guardopt.domain.policy import GuardrailBinding, Policy, Stage
 from guardopt.domain.route_cost import stage_cost
 from guardopt.domain.selection import PROFILE_ORDER, PROFILE_SORT_KEYS
@@ -64,11 +66,14 @@ from guardopt.domain.vectorised import (
 )
 
 
-class CandidateSpaceTooLargeError(RuntimeError):
+class CandidateSpaceTooLargeError(SearchSpaceError, RuntimeError):
     """The exhaustive space exceeds the configured limit.
 
     Raised *before* enumeration begins. Carries the estimate so the caller can report
     it and switch to the bounded method rather than guessing.
+
+    Keeps `RuntimeError` as a second base so existing `except RuntimeError` sites keep
+    working; `SearchSpaceError` is the new, more precise thing to catch.
     """
 
     def __init__(self, estimated_size: int, limit: int) -> None:
@@ -177,121 +182,10 @@ def enumerate_policies(
         )
 
 
-@dataclass(frozen=True, slots=True)
-class EvaluatedPolicy:
-    """A simulated policy and every number the Pareto filter and profile tie-breakers
-    read. Computed once per distinct candidate and cached."""
-
-    candidate: PolicyCandidate
-    confusion_matrix: ConfusionMatrix
-    binary: BinaryOutcomeReport
-    intervention: InterventionReport
-
-    precision: float | None
-    recall: float | None
-    f05: float | None
-    f1: float | None
-    f2: float | None
-
-    #: The MEAN per-request latency, over the requests that carried a timing. Computed
-    #: per case (domain/latency.py), not from per-guardrail means: a request waits for
-    #: the slowest call it actually made, and the mean of maxima is not the max of means.
-    estimated_latency_ms: float | None
-
-    #: What a request costs under this policy, in the caller's own cost units. For a flat
-    #: policy: the sum over distinct calls — running calls together does not make them
-    #: free, so money sums where latency takes the max. For a cascade: the mean over the
-    #: routes actually taken. `None` when no price was measured or declared, never 0.0 —
-    #: an unknown price is not a free policy.
-    estimated_cost: float | None = None
-
-    #: The latency tail. `p95_latency_ms` is what `Constraints.max_p95_latency_ms`
-    #: reads, and what a cascade has to answer for: its mean falls with the escalation
-    #: share while its tail waits for both stages. Deliberately NOT a Pareto axis — every
-    #: axis added makes more policies non-dominated, and a frontier that keeps everything
-    #: has stopped being advice.
-    p50_latency_ms: float | None = None
-    p95_latency_ms: float | None = None
-    p99_latency_ms: float | None = None
-    timed_case_count: int = 0
-
-    #: This policy's pass/warning/fail verdict on every case, in dataset order.
-    #: Two policies with the same signature are INDISTINGUISHABLE in production, whatever
-    #: their guardrail lists say. Recommending both as "different options" would be a
-    #: fabricated choice — see `selection.deduplicate_by_behaviour`.
-    outcome_signature: tuple[str, ...] = ()
-
-    #: The staged policy this came from, when stage search produced it. `None` for a flat
-    #: policy, which is every result unless `config.search_stages` is on.
-    #:
-    #: `candidate` carries the thresholds either way, so everything downstream — selection,
-    #: explanation, Sentinel mapping — reads one surface. This is the structure on top: the
-    #: ordering, the early exits, and which stage saved the money.
-    policy: "Policy | None" = None
-
-    # Flat accessors so profile selection can read one uniform surface instead of
-    # reaching through three nested reports for every tie-breaker.
-    @property
-    def false_positives(self) -> int:
-        return self.confusion_matrix.false_positives
-
-    @property
-    def false_negatives(self) -> int:
-        return self.confusion_matrix.false_negatives
-
-    @property
-    def false_positive_rate(self) -> float | None:
-        """FP over actual negatives; `None` when the dataset has no safe cases.
-
-        Exists so `constraints.Constraints.max_false_positive_rate` reads a real number
-        off the engine's own type — without it, every FPR bar reported "not measured"
-        for every real policy and quietly forced the relaxed path.
-        """
-        return false_positive_rate(self.confusion_matrix)
-
-    @property
-    def total_safe_intervention_rate(self) -> float | None:
-        return self.intervention.total_safe_intervention_rate
-
-    @property
-    def safe_warning_rate(self) -> float | None:
-        return self.intervention.safe_warning_rate
-
-    @property
-    def total_unsafe_detection_coverage(self) -> float | None:
-        return self.intervention.total_unsafe_detection_coverage
-
-    @property
-    def unsafe_warning_coverage(self) -> float | None:
-        return self.intervention.unsafe_warning_coverage
-
-    @property
-    def enabled_count(self) -> int:
-        return len(self.candidate)
-
-    @property
-    def lexical_key(self) -> tuple:
-        """Stable final tie-breaker — identical metrics must still order identically."""
-        return tuple(
-            (name, thresholds.failed, float("inf") if thresholds.warning is None else thresholds.warning)
-            for name, thresholds in self.candidate.entries
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class SearchDiagnostics:
-    """Retained so a recommendation can say how it was found — a bounded-search result
-    must never be presented as a proven optimum."""
-
-    method: SearchMethod
-    estimated_space_size: int
-    evaluated_candidate_count: int
-    cache_hits: int
-
-    #: Beam search only. `converged=True` means a round added nothing new, so the search
-    #: stopped because it was finished rather than because it ran out of iterations.
-    rounds_run: int = 0
-    converged: bool = True
+# `EvaluatedPolicy` and `SearchDiagnostics` now live in `domain.evaluation` (imported
+# above and re-exported here so `from guardopt.domain.search import EvaluatedPolicy`
+# keeps working): the optimiser's most-consumed types no longer sit inside the search
+# algorithm's own module.
 
 
 class PolicyEvaluator:
@@ -313,6 +207,12 @@ class PolicyEvaluator:
         # per-case pure path is pinned by tests/domain/test_vectorised_parity.py.
         self._arrays = CaseArrays.build(self._definitions, request.test_cases)
         self.cache_hits = 0
+        # Per-guardrail masks are invariant across candidates; latency and cost depend only
+        # on which guardrails are enabled, not on their thresholds. Both are memoised for
+        # the search's lifetime so 10^5 candidates recompute a handful of each, not 10^5.
+        self._mask_cache: dict = {}
+        self._latency_stats_cache: dict[tuple[str, ...], tuple] = {}
+        self._cost_cache: dict[tuple[str, ...], float | None] = {}
 
     @property
     def evaluation_count(self) -> int:
@@ -335,29 +235,30 @@ class PolicyEvaluator:
             return cached
 
         codes, excluded, errored_case = flat_outcome_codes(
-            self._arrays, self._definitions, candidate, self._request.config.treat_missing_as
+            self._arrays,
+            self._definitions,
+            candidate,
+            self._request.config.treat_missing_as,
+            self._mask_cache,
         )
-        binary = binary_report_from_codes(self._arrays, codes, excluded)
+        # with_ids=False: the search reads counts and rates, not the per-case ID lists —
+        # `optimise` rebuilds those for the recommended policies alone (F10 in the review).
+        binary = binary_report_from_codes(self._arrays, codes, excluded, with_ids=False)
         cm = binary.confusion_matrix
-        mean_latency, p50, p95, p99, timed_count = self._latency_stats(candidate)
 
-        evaluated = EvaluatedPolicy(
+        evaluated = assemble_evaluated_policy(
             candidate=candidate,
             confusion_matrix=cm,
             binary=binary,
             intervention=intervention_report_from_codes(
-                self._arrays, codes, excluded, errored_case
+                self._arrays, codes, excluded, errored_case, with_ids=False
             ),
             precision=precision(cm),
             recall=recall(cm),
             f05=f05(cm),
             f1=f1(cm),
             f2=f2(cm),
-            estimated_latency_ms=mean_latency,
-            p50_latency_ms=p50,
-            p95_latency_ms=p95,
-            p99_latency_ms=p99,
-            timed_case_count=timed_count,
+            latency=self._latency_stats(candidate),
             estimated_cost=self._cost_for(candidate),
             outcome_signature=signature_from_codes(codes, excluded),
         )
@@ -369,20 +270,34 @@ class PolicyEvaluator:
 
         A flat policy is one parallel stage that always runs, so every timed case
         contributes its own slowest call — never a mean standing in for a request.
+
+        Memoised on `enabled_names`: latency depends only on which guardrails run, not on
+        their thresholds, so the ≤ 2^(optional guardrails) distinct enabled-sets are each
+        summarised once rather than once per candidate (the search's largest single cost).
         """
-        latency, measured = flat_latency_arrays(
-            self._arrays, candidate.enabled_names, self._definitions
-        )
-        return summarise_latency_arrays(latency, measured)
+        key = candidate.enabled_names
+        hit = self._latency_stats_cache.get(key)
+        if hit is not None:
+            return hit
+        latency, measured = flat_latency_arrays(self._arrays, key, self._definitions)
+        stats = summarise_latency_arrays(latency, measured)
+        self._latency_stats_cache[key] = stats
+        return stats
 
     def _cost_for(self, candidate: PolicyCandidate) -> float | None:
         """Money SUMS where latency takes the max: three guardrails running together
         still make three calls. The charge collapse per call group is identical — which
-        calls happened is the same question whichever unit is billed."""
-        charges = latency_by_call_group(
-            candidate.enabled_names, self._definitions, self._mean_cost
-        )
-        return sum(charges.values()) if charges else None
+        calls happened is the same question whichever unit is billed.
+
+        Memoised on `enabled_names` for the same reason as latency: cost is a function of
+        which guardrails run, not of their thresholds."""
+        key = candidate.enabled_names
+        if key in self._cost_cache:
+            return self._cost_cache[key]
+        charges = latency_by_call_group(key, self._definitions, self._mean_cost)
+        cost = sum(charges.values()) if charges else None
+        self._cost_cache[key] = cost
+        return cost
 
 
 def mean_latency_by_guardrail(request: OptimiserRequest) -> dict[str, float | None]:
@@ -628,6 +543,11 @@ class StagedPolicyEvaluator:
         self._arrays = CaseArrays.build(self._definitions, request.test_cases)
         self._cache: dict[Policy, EvaluatedPolicy] = {}
         self.cache_hits = 0
+        # Masks are invariant across cascades; a stage's own per-case latency depends only
+        # on its guardrail set and parallel flag. Both recur across thousands of policies,
+        # so both are memoised for the evaluator's lifetime.
+        self._mask_cache: dict = {}
+        self._stage_latency_cache: dict = {}
 
     @property
     def evaluation_count(self) -> int:
@@ -660,9 +580,14 @@ class StagedPolicyEvaluator:
             return cached
 
         codes, excluded, errored_case, stages_run = staged_outcome_codes(
-            self._arrays, self._definitions, policy, self._request.config.treat_missing_as
+            self._arrays,
+            self._definitions,
+            policy,
+            self._request.config.treat_missing_as,
+            self._mask_cache,
         )
-        binary = binary_report_from_codes(self._arrays, codes, excluded)
+        # with_ids=False: see the flat evaluator — `optimise` rebuilds IDs for the picks.
+        binary = binary_report_from_codes(self._arrays, codes, excluded, with_ids=False)
         cm = binary.confusion_matrix
 
         # A cascade's cost is per case: a request that exits early never pays for the
@@ -671,9 +596,8 @@ class StagedPolicyEvaluator:
         # whole distribution, because a cascade's mean and its tail move in opposite
         # directions and only reporting the mean would hide that.
         latency, timed = route_latency_arrays(
-            self._arrays, self._definitions, policy, stages_run
+            self._arrays, self._definitions, policy, stages_run, self._stage_latency_cache
         )
-        mean_latency, p50, p95, p99, timed_count = summarise_latency_arrays(latency, timed)
         estimated_cost = self._mean_route_charge(
             stages_run,
             [
@@ -682,7 +606,7 @@ class StagedPolicyEvaluator:
             ],
         )
 
-        evaluated = EvaluatedPolicy(
+        evaluated = assemble_evaluated_policy(
             candidate=PolicyCandidate.of(
                 {
                     binding.name: binding.thresholds()
@@ -693,18 +617,14 @@ class StagedPolicyEvaluator:
             confusion_matrix=cm,
             binary=binary,
             intervention=intervention_report_from_codes(
-                self._arrays, codes, excluded, errored_case
+                self._arrays, codes, excluded, errored_case, with_ids=False
             ),
             precision=precision(cm),
             recall=recall(cm),
             f05=f05(cm),
             f1=f1(cm),
             f2=f2(cm),
-            estimated_latency_ms=mean_latency,
-            p50_latency_ms=p50,
-            p95_latency_ms=p95,
-            p99_latency_ms=p99,
-            timed_case_count=timed_count,
+            latency=summarise_latency_arrays(latency, timed),
             estimated_cost=estimated_cost,
             outcome_signature=signature_from_codes(codes, excluded),
             policy=policy,
@@ -828,6 +748,11 @@ def stage_search(
     evaluator = StagedPolicyEvaluator(request)
     staged: list[EvaluatedPolicy] = []
 
+    # Bind the definitions once. `guardrail_by_name` is deliberately uncached and rebuilds
+    # on every access; read inside the per-binding genexpr below it was rebuilt hundreds of
+    # thousands of times per search, contradicting the invariant ("read once per search")
+    # its own docstring leans on to justify not caching. Once here is once.
+    definitions = request.guardrail_by_name
     for plan in plans:
         plan_names = [name for stage in plan for name in stage]
         options = _plan_options(plan, spaces_by_name, banded_by_name)
@@ -841,12 +766,10 @@ def stage_search(
                         guardrails=tuple(
                             GuardrailBinding(
                                 name=name,
-                                score_direction=request.guardrail_by_name[
-                                    name
-                                ].score_direction,
+                                score_direction=definitions[name].score_direction,
                                 failed=thresholds[name].failed,
                                 warning=thresholds[name].warning,
-                                call_group=request.guardrail_by_name[name].call_group,
+                                call_group=definitions[name].call_group,
                             )
                             for name in stage
                         ),

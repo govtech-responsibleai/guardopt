@@ -23,6 +23,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from guardopt.domain.evaluation import RankablePolicy
 from guardopt.domain.pareto import pareto_frontier, partition_by_measurability
 from guardopt.domain.types import RecommendationProfile
 
@@ -45,14 +46,14 @@ def _desc(value: float | None) -> tuple[int, float]:
     return (1, 0.0) if value is None else (0, -float(value))
 
 
-def _balance_gap(policy: Any) -> float | None:
+def _balance_gap(policy: RankablePolicy) -> float | None:
     """How lopsided the precision/recall trade is. Balanced's second criterion."""
     if policy.precision is None or policy.recall is None:
         return None
     return abs(policy.precision - policy.recall)
 
 
-def minimal_sort_key(policy: Any) -> tuple:
+def minimal_sort_key(policy: RankablePolicy) -> tuple:
     """F0.5, then precision, fewer false positives, and least disturbance to safe users."""
     return (
         _desc(policy.f05),
@@ -62,12 +63,12 @@ def minimal_sort_key(policy: Any) -> tuple:
         _asc(policy.safe_warning_rate),
         _asc(policy.enabled_count),
         _asc(policy.estimated_latency_ms),
-        _asc(getattr(policy, "estimated_cost", None)),
+        _asc(policy.estimated_cost),
         policy.lexical_key,
     )
 
 
-def balanced_sort_key(policy: Any) -> tuple:
+def balanced_sort_key(policy: RankablePolicy) -> tuple:
     """F1, then the tightest precision/recall balance, then coverage over disruption."""
     return (
         _desc(policy.f1),
@@ -78,12 +79,12 @@ def balanced_sort_key(policy: Any) -> tuple:
         _asc(policy.false_negatives),
         _asc(policy.enabled_count),
         _asc(policy.estimated_latency_ms),
-        _asc(getattr(policy, "estimated_cost", None)),
+        _asc(policy.estimated_cost),
         policy.lexical_key,
     )
 
 
-def strict_sort_key(policy: Any) -> tuple:
+def strict_sort_key(policy: RankablePolicy) -> tuple:
     """F2, then recall, fewer misses, and the widest detection — including warnings."""
     return (
         _desc(policy.f2),
@@ -94,12 +95,12 @@ def strict_sort_key(policy: Any) -> tuple:
         _asc(policy.safe_warning_rate),
         _asc(policy.enabled_count),
         _asc(policy.estimated_latency_ms),
-        _asc(getattr(policy, "estimated_cost", None)),
+        _asc(policy.estimated_cost),
         policy.lexical_key,
     )
 
 
-PROFILE_SORT_KEYS: dict[RecommendationProfile, Callable[[Any], tuple]] = {
+PROFILE_SORT_KEYS: dict[RecommendationProfile, Callable[[RankablePolicy], tuple]] = {
     MINIMAL: minimal_sort_key,
     BALANCED: balanced_sort_key,
     STRICT: strict_sort_key,
@@ -112,7 +113,7 @@ _OBJECTIVE = {
 }
 
 
-def deduplicate_by_behaviour(policies: Sequence[Any]) -> tuple[Any, ...]:
+def deduplicate_by_behaviour(policies: Sequence[RankablePolicy]) -> tuple[RankablePolicy, ...]:
     """Collapse policies that produce identical outcomes on every case.
 
     **This is what stops the optimiser fabricating a choice.** Distinctness used to be
@@ -127,15 +128,15 @@ def deduplicate_by_behaviour(policies: Sequence[Any]) -> tuple[Any, ...]:
     directly — the one-guardrail version beats the two-guardrail version that does the
     same thing — and generally prefers the policy an operator has less to maintain.
 
-    Policies without an `outcome_signature` are passed through untouched, so callers that
-    supply their own comparable objects are unaffected.
+    Policies with an empty `outcome_signature` are passed through untouched (there is
+    nothing to compare), so a caller supplying a not-yet-simulated policy is unaffected.
     """
-    best_by_signature: dict[tuple[str, ...], Any] = {}
-    order: list[tuple[str, ...]] = []
-    passthrough: list[Any] = []
+    best_by_signature: dict[bytes, RankablePolicy] = {}
+    order: list[bytes] = []
+    passthrough: list[RankablePolicy] = []
 
     for policy in policies:
-        signature = getattr(policy, "outcome_signature", None)
+        signature = policy.outcome_signature
         if not signature:
             passthrough.append(policy)
             continue
@@ -150,17 +151,19 @@ def deduplicate_by_behaviour(policies: Sequence[Any]) -> tuple[Any, ...]:
     return tuple(passthrough) + tuple(best_by_signature[s] for s in order)
 
 
-def _simplicity_key(policy: Any) -> tuple:
+def _simplicity_key(policy: RankablePolicy) -> tuple:
     """Fewer guardrails, then faster, then stable order. Lower is simpler."""
     return (
-        _asc(getattr(policy, "enabled_count", 0)),
-        _asc(getattr(policy, "estimated_latency_ms", None)),
-        _asc(getattr(policy, "estimated_cost", None)),
-        getattr(policy, "lexical_key", ()),
+        _asc(policy.enabled_count),
+        _asc(policy.estimated_latency_ms),
+        _asc(policy.estimated_cost),
+        policy.lexical_key,
     )
 
 
-def _collapse_pareto_identical(policies: Sequence[Any]) -> tuple[Any, ...]:
+def _collapse_pareto_identical(
+    policies: Sequence[RankablePolicy],
+) -> tuple[RankablePolicy, ...]:
     """Collapse policies indistinguishable to the frontier — same behaviour *and* same
     latency — to the simplest of each group, before the quadratic frontier pass runs.
 
@@ -175,22 +178,22 @@ def _collapse_pareto_identical(policies: Sequence[Any]) -> tuple[Any, ...]:
     dropping the rest cannot change which policies the frontier keeps — only how many
     identical copies it has to compare. Latency is part of the key precisely so a faster
     cascade and a slower one with the same verdicts are *not* collapsed here; the frontier
-    still gets to prefer the faster one. Policies with no `outcome_signature` pass through
-    untouched, so callers supplying their own comparable objects are unaffected.
+    still gets to prefer the faster one. Policies with an empty `outcome_signature` pass
+    through untouched, so a not-yet-simulated policy is unaffected.
     """
-    best: dict[tuple, Any] = {}
+    best: dict[tuple, RankablePolicy] = {}
     order: list[tuple] = []
-    passthrough: list[Any] = []
+    passthrough: list[RankablePolicy] = []
 
     for policy in policies:
-        signature = getattr(policy, "outcome_signature", None)
+        signature = policy.outcome_signature
         if not signature:
             passthrough.append(policy)
             continue
         key = (
             signature,
-            getattr(policy, "estimated_latency_ms", None),
-            getattr(policy, "estimated_cost", None),
+            policy.estimated_latency_ms,
+            policy.estimated_cost,
         )
         incumbent = best.get(key)
         if incumbent is None:
@@ -265,7 +268,7 @@ def _satisfies_invariants(
     return True
 
 
-def select_profiles(policies: Sequence[Any]) -> SelectionResult:
+def select_profiles(policies: Sequence[RankablePolicy]) -> SelectionResult:
     """Pick one policy per profile from the Pareto frontier, keeping all three distinct."""
     warnings: list[str] = []
 

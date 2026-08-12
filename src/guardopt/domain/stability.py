@@ -29,7 +29,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from guardopt.domain.metrics import ConfusionMatrix, f_beta
+from guardopt.domain.evaluation import (
+    SIGNATURE_EXCLUDED,
+    SIGNATURE_FAIL,
+    RankablePolicy,
+)
+from guardopt.domain.metrics import PROFILE_BETA, ConfusionMatrix, f_beta
 from guardopt.domain.types import ExpectedAction, RecommendationProfile
 
 __all__ = [
@@ -37,12 +42,6 @@ __all__ = [
     "StabilityReport",
     "bootstrap_selection_stability",
 ]
-
-_PROFILE_BETA: dict[RecommendationProfile, float] = {
-    RecommendationProfile.MINIMAL: 0.5,
-    RecommendationProfile.BALANCED: 1.0,
-    RecommendationProfile.STRICT: 2.0,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,13 +74,16 @@ class StabilityReport:
         return f"Bootstrap stability over {self.rounds} dataset resamples: {parts}."
 
 
-def _blocked_vector(policy: Any) -> tuple[bool, ...]:
-    """Which cases this policy blocks — the identity that survives the warning ladder."""
-    return tuple(entry == "fail" for entry in policy.outcome_signature)
+def _blocked_vector(policy: RankablePolicy) -> tuple[bool, ...]:
+    """Which cases this policy blocks — the identity that survives the warning ladder.
+
+    Reads the `bytes` outcome signature; iterating it yields the per-case codes.
+    """
+    return tuple(code == SIGNATURE_FAIL for code in policy.outcome_signature)
 
 
 def _resampled_objective(
-    policy: Any,
+    policy: RankablePolicy,
     expected_block: Sequence[bool],
     indices: Sequence[int],
     beta: float,
@@ -91,9 +93,9 @@ def _resampled_objective(
     signature = policy.outcome_signature
     for index in indices:
         entry = signature[index]
-        if entry == "excluded":
+        if entry == SIGNATURE_EXCLUDED:
             continue
-        blocked = entry == "fail"
+        blocked = entry == SIGNATURE_FAIL
         if expected_block[index]:
             tp += blocked
             fn += not blocked
@@ -145,7 +147,7 @@ def bootstrap_selection_stability(
         indices = [rng.randrange(case_count) for _ in range(case_count)]
 
         for profile, picked_vector in picks.items():
-            beta = _PROFILE_BETA[profile]
+            beta = PROFILE_BETA[profile]
             best: Any = None
             best_key: tuple | None = None
             for candidate in frontier:

@@ -50,6 +50,8 @@ class FakePolicy:
     unsafe_warning_coverage: float | None = 0.0
     enabled_count: int = 1
     estimated_latency_ms: float | None = None
+    estimated_cost: float | None = None
+    outcome_signature: bytes = b""
     lexical_key: tuple = ()
 
 

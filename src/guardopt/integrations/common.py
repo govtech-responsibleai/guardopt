@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 
+from guardopt.domain.errors import GuardoptInputError
 from guardopt.domain.inputs import GuardrailDefinition
 from guardopt.domain.policy import Policy
 
@@ -9,15 +10,46 @@ __all__ = [
     "IntegrationExportError",
     "definitions_literal",
     "require_definitions_for",
+    "safe_for_generated_source",
 ]
 
 
-class IntegrationExportError(ValueError):
+def safe_for_generated_source(text: str) -> str:
+    """Neutralise a value before it is interpolated into GENERATED Python source.
+
+    The exporters embed a policy/guardrail name into a module they write to disk and the
+    caller then imports. Interpolated raw, a name containing `\"\"\"` closes the module's
+    docstring and everything after it becomes executable code — arbitrary code execution
+    at import time. (`policy.name` is `str(payload["name"])` with no charset restriction,
+    and guardrail names are only checked non-empty.)
+
+    This escapes backslashes and double quotes and flattens newlines, so the result is
+    safe to drop into either a `\"\"\"...\"\"\"` docstring or a `"..."` string literal:
+    `\\"` is a valid escape producing a single quote, and `\\"\\"\\"` contains no run of
+    three unescaped quotes, so neither context can be broken out of. Legitimate names
+    (`toxicity`, `moderation:hate`, `deepeval/faithfulness`) pass through byte-identical.
+
+    This mirrors the discipline the Sentinel path already applies via `slugify`; the code
+    generators simply had not.
+    """
+    return (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", " ")
+        .replace("\r", " ")
+        .replace("\x00", "")
+    )
+
+
+class IntegrationExportError(GuardoptInputError, ValueError):
     """A policy this target cannot express without changing what was measured.
 
     Raised instead of emitting a best-effort artifact, for the same reason the Sentinel
     mapping refuses: a config that deploys different behaviour than the numbers describe
     is worse than no config. The message names exactly what does not fit.
+
+    Keeps `ValueError` as a second base so existing `except ValueError` sites are
+    unaffected.
     """
 
 

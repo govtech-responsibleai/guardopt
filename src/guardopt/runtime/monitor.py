@@ -22,18 +22,27 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from guardopt.domain.evaluation import (
+    SIGNATURE_CODE_NAMES,
+    SIGNATURE_EXCLUDED,
+    RankablePolicy,
+)
+
 __all__ = ["DecisionAggregator", "DriftComparison", "simulated_shares"]
 
 
-def simulated_shares(evaluated: Any) -> dict[str, float]:
+def simulated_shares(evaluated: RankablePolicy) -> dict[str, float]:
     """The outcome shares the simulation promised, straight off an `EvaluatedPolicy`.
 
-    Reads the per-case `outcome_signature` ("pass"/"warning"/"fail" per case; excluded
-    cases carry no promise and are dropped). This is the baseline live traffic is
-    compared against — the numbers the policy was accepted on.
+    Reads the per-case `outcome_signature` (a `bytes` of outcome codes; excluded cases
+    carry no promise and are dropped). Keyed by verdict name ("pass"/"warning"/"fail")
+    so it lines up with `DecisionAggregator.observed_shares`, whose keys come from
+    `PolicyOutcome.value`. This is the baseline live traffic is compared against.
     """
     counted = Counter(
-        entry for entry in evaluated.outcome_signature if entry != "excluded"
+        SIGNATURE_CODE_NAMES[code]
+        for code in evaluated.outcome_signature
+        if code != SIGNATURE_EXCLUDED
     )
     total = sum(counted.values())
     if total == 0:

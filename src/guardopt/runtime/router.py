@@ -18,15 +18,17 @@ latency figures that were fiction.
 """
 
 import asyncio
+import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import Executor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from guardopt.domain.inputs import GuardrailDefinition, GuardrailTestResult
 from guardopt.domain.policy import Policy
-from guardopt.domain.route import stage_verdict
+from guardopt.domain.route import apply_stage_transition, stage_verdict
 from guardopt.domain.simulation import (
     InvalidThresholdError,
     evaluate_guardrail,
@@ -36,6 +38,8 @@ from guardopt.domain.types import GuardrailOutcome, PolicyOutcome, StageConditio
 from guardopt.runtime.protocol import Guardrail, GuardrailReading, read_guardrail
 
 __all__ = ["GuardrailRouter", "RouteTrace", "RoutedDecision"]
+
+_logger = logging.getLogger("guardopt.runtime.router")
 
 
 def _discard_abandoned_result(task: "asyncio.Task") -> None:
@@ -100,6 +104,7 @@ class GuardrailRouter:
         *,
         timeout_ms: float | None = None,
         on_decision: Callable[[RoutedDecision], None] | None = None,
+        executor: Executor | None = None,
     ) -> None:
         self.guards: dict[str, Guardrail] = (
             dict(guards)
@@ -108,6 +113,13 @@ class GuardrailRouter:
         )
         self.policy = policy
         self.definitions = dict(definitions)
+
+        #: The thread pool synchronous guardrails run in. `None` uses the shared process
+        #: default (`protocol._SYNC_GUARDRAIL_EXECUTOR`). Pass a bounded, disposable
+        #: `ThreadPoolExecutor` to isolate THIS router's blocking calls: a guardrail that
+        #: hangs then saturates only this router's pool, not every other router's in the
+        #: process. The router does not own the pool it is given — the caller closes it.
+        self.executor = executor
 
         #: Per-call budget. A guardrail that has not answered by then is treated as
         #: errored — never as a pass, and never as permission to exit early — bounding
@@ -119,8 +131,10 @@ class GuardrailRouter:
 
         #: Called with every decision, after it is made. The audit hook: wire logging,
         #: metrics or a `runtime.monitor.DecisionAggregator` here. Runs inline on the
-        #: request path, so it must be cheap and must not raise — an exception from it
-        #: fails the live request it observed.
+        #: request path, so it must be cheap. An exception from it is CONTAINED (logged at
+        #: ERROR on `guardopt.runtime.router`, then swallowed) rather than propagated:
+        #: observability must never fail the request it was only meant to observe, which is
+        #: the same fail-closed discipline every guardrail call on this path already gets.
         self.on_decision = on_decision
 
         self._validate()
@@ -204,6 +218,7 @@ class GuardrailRouter:
         *,
         timeout_ms: float | None = None,
         on_decision: Callable[[RoutedDecision], None] | None = None,
+        executor: Executor | None = None,
     ) -> "GuardrailRouter":
         return cls(
             guards=guards,
@@ -211,6 +226,7 @@ class GuardrailRouter:
             definitions=definitions,
             timeout_ms=timeout_ms,
             on_decision=on_decision,
+            executor=executor,
         )
 
     def reload_policy(self, policy: Policy) -> None:
@@ -301,18 +317,24 @@ class GuardrailRouter:
                 stage_outcomes.append(outcome)
 
             verdict = stage_verdict(stage_outcomes)
+            # The same stop/continue rule the offline walk uses (domain/route.py) — one
+            # function, so the runtime cannot enforce a cascade differently from how it was
+            # measured. The router's own loop above still decides what to *call*; only the
+            # verdict transition is shared.
+            transition = apply_stage_transition(
+                verdict,
+                uncertain,
+                resolves_uncertainty=stage.resolves_uncertainty,
+                allow_exit=stage.allow_exit,
+            )
+            uncertain = transition.uncertain
 
-            if verdict is PolicyOutcome.FAIL:
+            if transition.decided is PolicyOutcome.FAIL:
                 final, reason = PolicyOutcome.FAIL, "blocked"
                 stages_skipped.extend(s.name for s in policy.stages[index + 1 :])
                 break
 
-            if verdict is PolicyOutcome.WARNING:
-                uncertain = True
-            elif stage.resolves_uncertainty:
-                uncertain = False
-
-            if stage.allow_exit and not uncertain:
+            if transition.decided is PolicyOutcome.PASS:
                 final, reason = PolicyOutcome.PASS, "cleared early"
                 exited_early = True
                 stages_skipped.extend(s.name for s in policy.stages[index + 1 :])
@@ -340,7 +362,15 @@ class GuardrailRouter:
             decided_at=time.time(),
         )
         if self.on_decision is not None:
-            self.on_decision(decision)
+            try:
+                self.on_decision(decision)
+            except Exception:
+                # The decision is already made; a broken metrics/logging sink must not
+                # turn observing a request into failing it. Log and carry on.
+                _logger.exception(
+                    "on_decision hook raised for policy %r; decision returned unaffected",
+                    policy.name,
+                )
         return decision
 
     async def _read_contained(
@@ -368,9 +398,11 @@ class GuardrailRouter:
         """
         try:
             if self.timeout_ms is None:
-                return await read_guardrail(guard, request)
+                return await read_guardrail(guard, request, executor=self.executor)
 
-            task = asyncio.ensure_future(read_guardrail(guard, request))
+            task = asyncio.ensure_future(
+                read_guardrail(guard, request, executor=self.executor)
+            )
             _, pending = await asyncio.wait({task}, timeout=self.timeout_ms / 1000.0)
             if pending:
                 task.cancel()

@@ -29,6 +29,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from guardopt.domain.evaluation import RankablePolicy
 from guardopt.domain.inputs import GuardrailDefinition
 from guardopt.domain.metrics import precision_interval, recall_interval
 from guardopt.domain.types import (
@@ -265,7 +266,7 @@ def _stage_descriptor(stage: Any, is_last: bool) -> str:
 
 
 def _guardrail_lines(
-    policy: Any, definitions: Mapping[str, GuardrailDefinition]
+    policy: RankablePolicy, definitions: Mapping[str, GuardrailDefinition]
 ) -> tuple[str, ...]:
     """One line per guardrail, in the same order the policy stores them.
 
@@ -277,7 +278,7 @@ def _guardrail_lines(
     early exits ARE the policy — a flat list of thresholds describes a different policy
     that happens to share its numbers, and this text is what a reviewer signs off on.
     """
-    staged = getattr(policy, "policy", None)
+    staged = policy.policy
     if staged is not None and not staged.is_flat:
         lines: list[str] = []
         for index, stage in enumerate(staged.stages, start=1):
@@ -297,21 +298,21 @@ def _guardrail_lines(
     )
 
 
-def _cost_clause(policy: Any) -> str:
+def _cost_clause(policy: RankablePolicy) -> str:
     """The money, appended only when a price was measured or declared.
 
     The unit is the caller's own — the package never learns whether 0.004 is dollars or
     credits, so it says "in your cost units" rather than inventing a currency.
     """
-    cost = getattr(policy, "estimated_cost", None)
+    cost = policy.estimated_cost
     if cost is None:
         return ""
     return f" Each request costs about {cost:.4g}, in your cost units."
 
 
-def _operations_sentence(policy: Any) -> str | None:
+def _operations_sentence(policy: RankablePolicy) -> str | None:
     latency = policy.estimated_latency_ms
-    cost = getattr(policy, "estimated_cost", None)
+    cost = policy.estimated_cost
     if policy.enabled_count == 0 or (latency is None and cost is None):
         return None
 
@@ -322,7 +323,7 @@ def _operations_sentence(policy: Any) -> str | None:
     # stops as soon as one settles the request, so the latency is a per-request average over
     # the routes taken, not the slowest of a single parallel fan-out. Describing it as
     # parallel would misstate both the mechanism and why the number is what it is.
-    staged = getattr(policy, "policy", None)
+    staged = policy.policy
     if staged is not None and not staged.is_flat:
         stages = len(staged.stages)
         if latency is None:
@@ -396,7 +397,7 @@ def _confidence_sentence(policy: Any) -> str | None:
 
 
 def _limitations(
-    policy: Any,
+    policy: RankablePolicy,
     diagnostics: Any,
     used_fallback: bool,
     fallback_reason: str | None,
@@ -420,7 +421,7 @@ def _limitations(
     if confidence is not None:
         limitations.append(confidence)
 
-    staged = getattr(policy, "policy", None)
+    staged = policy.policy
     if staged is not None and not staged.is_flat:
         limitations.append(
             "This is a staged policy: each request pays only for the stages it reaches, "
@@ -494,7 +495,7 @@ def explain_selection(
             policy,
             diagnostics,
             selection.used_fallback,
-            getattr(selection, "fallback_reason", None),
+            selection.fallback_reason,
         ),
     )
 

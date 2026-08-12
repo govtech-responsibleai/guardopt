@@ -33,6 +33,7 @@ from guardopt.domain.search import (
 from guardopt.domain.simulation import GuardrailThresholds, PolicyCandidate
 from guardopt.domain.types import ExpectedAction, ScoreDirection, SearchMethod
 from guardopt.fixtures import golden
+from guardopt.optimise import populate_case_ids
 
 pytestmark = pytest.mark.unit
 
@@ -194,11 +195,16 @@ def test_evaluated_policy_carries_the_metrics_selection_needs():
     assert evaluated.f05 == pytest.approx(0.909091, abs=1e-5)
     assert evaluated.f1 == pytest.approx(0.8, abs=1e-5)
     assert evaluated.f2 == pytest.approx(0.714286, abs=1e-5)
-    assert evaluated.binary.false_negative_test_case_ids == (
+
+    # The search carries the counts and rates selection ranks on, but omits the per-case
+    # ID lists for speed and memory (F10) — those are empty until populated.
+    assert evaluated.binary.false_negative_test_case_ids == ()
+    enriched = populate_case_ids(evaluated, request)
+    assert enriched.binary.false_negative_test_case_ids == (
         "u5_leak_low_confidence",
         "u6_novel_phrasing",
     )
-    assert evaluated.intervention.warned_safe_test_case_ids == ("s6_technical_talk",)
+    assert enriched.intervention.warned_safe_test_case_ids == ("s6_technical_talk",)
 
 
 def test_estimated_latency_is_the_slowest_enabled_guardrail_not_the_sum():

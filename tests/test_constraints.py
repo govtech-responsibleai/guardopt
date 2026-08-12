@@ -40,6 +40,8 @@ class Policy:
     precision: float | None = 0.9
     recall: float | None = 0.9
     estimated_latency_ms: float | None = 50.0
+    p95_latency_ms: float | None = None
+    estimated_cost: float | None = None
     false_positives: int = 1
     label: str = ""
 
