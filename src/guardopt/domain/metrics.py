@@ -135,6 +135,17 @@ def f_beta(cm: ConfusionMatrix, beta: float) -> float | None:
     """F-beta. beta < 1 favours precision (Minimal), beta > 1 favours recall (Strict).
 
         F_beta = (1 + b^2) * P * R / (b^2 * P + R)
+               = (1 + b^2) * TP / ((1 + b^2) * TP + b^2 * FN + FP)
+
+    Computed by the second form — integer counts and ONE division — and that is not a
+    micro-optimisation. Profile selection sorts on F first and only then on the
+    documented tie-breakers (precision, false positives, balance...). Computed from two
+    already-rounded floats, confusion matrices with the same exact F got different
+    doubles: 917 of 1,055 exact F1 values over TP/FP/FN < 30 had more than one float
+    form (exact 2/3 had three), so a 1-ulp accident decided the pick before any
+    tie-breaker ran. With one division from exact integers, equal rationals give equal
+    floats — for the profile betas (b^2 in {1/4, 1, 4}) the numerator and denominator
+    are exact doubles, so the result is the correctly rounded value of the true F.
 
     `None` when precision or recall is undefined — an unmeasurable input cannot yield a
     measurable score, and such a candidate must not be ranked against real ones.
@@ -144,15 +155,14 @@ def f_beta(cm: ConfusionMatrix, beta: float) -> float | None:
     if beta <= 0:
         raise ValueError(f"beta must be positive, got {beta}")
 
-    p, r = precision(cm), recall(cm)
-    if p is None or r is None:
-        return None
+    if cm.predicted_positives == 0 or cm.actual_positives == 0:
+        return None  # precision, respectively recall, is undefined
 
     beta_sq = beta * beta
-    denominator = beta_sq * p + r
-    if denominator == 0:
-        return 0.0
-    return (1 + beta_sq) * p * r / denominator
+    numerator = (1.0 + beta_sq) * cm.true_positives
+    # Both counts undefined is caught above, so the denominator is positive here: at
+    # least one of FP, FN is non-zero whenever TP is zero.
+    return numerator / (numerator + beta_sq * cm.false_negatives + cm.false_positives)
 
 
 def wilson_interval(

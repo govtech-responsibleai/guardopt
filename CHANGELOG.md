@@ -12,6 +12,9 @@ demanded.
 
 ### Fixed
 
+- `f_beta` is computed from integer counts with one division, so policies with
+  the same exact F-score tie and the documented tie-breakers actually run.
+  Two rounded floats gave exact 2/3 three different representations.
 - `TestCaseGuardrailResults.result_for` follows a replaced `guardrail_results`
   list. `calibrated_cases` produced cases whose cached index still held the raw
   scores, so the pure path (candidates, simulation, holdout, explanations) read

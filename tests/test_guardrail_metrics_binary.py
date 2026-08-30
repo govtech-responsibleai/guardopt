@@ -286,3 +286,36 @@ def test_confusion_matrix_is_immutable():
     cm = _cm(1, 1, 1, 1)
     with pytest.raises(Exception):
         cm.true_positives = 9  # type: ignore[misc]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# F-beta is exact enough that equal scores are equal floats
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_f_beta_is_the_correctly_rounded_exact_value_so_equal_scores_tie():
+    """Selection sorts on F first and only then on the documented tie-breakers. Computed
+    from two rounded floats, matrices with the same exact F got different doubles (exact
+    2/3 had three forms), and a 1-ulp accident decided picks. One division from integer
+    counts gives the correctly rounded value, so equal rationals are equal floats."""
+    from fractions import Fraction
+
+    from guardopt.domain.metrics import PROFILE_BETA, ConfusionMatrix, f_beta
+
+    for beta in sorted(set(PROFILE_BETA.values())):
+        beta_sq = Fraction(beta) ** 2  # 1/4, 1, 4 — exact
+        floats_by_exact: dict[Fraction, set[float]] = {}
+        for tp in range(25):
+            for fp in range(25):
+                for fn in range(25):
+                    if tp + fp == 0 or tp + fn == 0:
+                        continue
+                    exact = (1 + beta_sq) * tp / ((1 + beta_sq) * tp + beta_sq * fn + fp)
+                    got = f_beta(
+                        ConfusionMatrix(true_positives=tp, false_positives=fp, false_negatives=fn),
+                        beta,
+                    )
+                    assert got == float(exact), (tp, fp, fn, beta)
+                    floats_by_exact.setdefault(exact, set()).add(got)
+        collisions = {k: v for k, v in floats_by_exact.items() if len(v) > 1}
+        assert not collisions, f"beta={beta}: {list(collisions.items())[:3]}"
