@@ -12,6 +12,9 @@ demanded.
 
 ### Fixed
 
+- The LiteLLM `post_call` export emits the streaming iterator hook as well as the
+  success hook; litellm never calls the latter for `stream=true`, so the output
+  guardrail enforced nothing for streaming clients.
 - The HTML report's trade-off chart rings the recommended picks again; matching
   by object identity had drawn no rings since the recommendations were rebuilt
   with their case IDs.

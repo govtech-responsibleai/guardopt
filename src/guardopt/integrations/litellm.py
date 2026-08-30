@@ -120,7 +120,10 @@ _PROMPT_TEXT_SNIPPET = '''\
 
 #: One hook per lifecycle phase, matching the installed CustomGuardrail signatures
 #: (verified live by tests/test_litellm_live.py). pre_call and during_call scan the
-#: request; post_call scans the model's RESPONSE — the output-guardrail case.
+#: request; post_call scans the model's RESPONSE — the output-guardrail case — and
+#: needs TWO hooks: litellm routes `stream=True` completions through the streaming
+#: iterator and never calls the success hook for them, so a post_call guardrail with
+#: only the success hook enforced nothing for every streaming client.
 _HOOKS = {
     "pre_call": (
         "    async def async_pre_call_hook(self, user_api_key_dict, cache, data, "
@@ -147,6 +150,28 @@ _HOOKS = {
         "                parts.append(str(content))\n"
         "        await self._decide(\" \".join(parts))\n"
         "        return response\n"
+        "\n"
+        "    async def async_post_call_streaming_iterator_hook(\n"
+        "        self, user_api_key_dict, response, request_data\n"
+        "    ):\n"
+        "        # Streaming responses never reach the success hook above: litellm\n"
+        "        # routes stream=True completions through this iterator instead. The\n"
+        "        # chunks are buffered to the end so the verdict covers the WHOLE\n"
+        "        # response -- the policy was measured on whole texts, and a verdict\n"
+        "        # on a prefix is not the measured policy -- then replayed.\n"
+        "        chunks = []\n"
+        "        async for chunk in response:\n"
+        "            chunks.append(chunk)\n"
+        "        parts = []\n"
+        "        for chunk in chunks:\n"
+        "            for choice in getattr(chunk, \"choices\", None) or []:\n"
+        "                delta = getattr(choice, \"delta\", None)\n"
+        "                content = getattr(delta, \"content\", None)\n"
+        "                if content:\n"
+        "                    parts.append(str(content))\n"
+        "        await self._decide(\"\".join(parts))\n"
+        "        for chunk in chunks:\n"
+        "            yield chunk\n"
     ),
 }
 
@@ -202,6 +227,12 @@ def export_litellm(
             "post_call scans the model's RESPONSE, not the prompt: the policy's "
             "thresholds were tuned on whatever text its matrix scored, so use a "
             "matrix of responses when optimising a response-side policy."
+        )
+        notes.append(
+            "Streaming responses (stream=true) are buffered to the end and judged "
+            "whole before being replayed to the client: a verdict on a prefix would "
+            "not be the measured policy. The client sees the reply arrive at once "
+            "rather than as a stream — the price of an output guardrail on a stream."
         )
     if len(policy.stages) > 1:
         notes.append(
