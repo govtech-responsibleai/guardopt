@@ -15,6 +15,7 @@ nothing.
 """
 
 import html
+from guardopt.domain.evaluation import SIGNATURE_FAIL, EvaluatedPolicy
 from guardopt.optimise import OptimisationResult, ProfileRecommendation
 
 __all__ = ["render_html"]
@@ -81,6 +82,20 @@ def _summary_table(recommendations: tuple[ProfileRecommendation, ...]) -> str:
     return f"<table><tr><th>Metric</th>{heads}</tr>{body}</table>"
 
 
+def _blocking_key(policy: EvaluatedPolicy) -> bytes:
+    """Which cases a policy blocks — the identity that survives `optimise`'s rebuilds.
+
+    Picks used to be matched to frontier points by `id()`. Since F10, `optimise` rebuilds
+    each recommendation with its per-case ID lists (a new object) and the warning ladder
+    swaps in banded copies (a new signature in its WARNING entries), while the frontier
+    keeps the originals — so nothing matched and the chart drew no rings at all. The
+    blocking vector is unchanged by both, and is what the bootstrap check compares too.
+    """
+    return bytes(
+        1 if code == SIGNATURE_FAIL else 0 for code in policy.outcome_signature
+    )
+
+
 def _frontier_chart(result: OptimisationResult) -> str:
     """Cost-effectiveness-vs-F1 scatter of the whole frontier, the profile picks ringed.
 
@@ -88,17 +103,17 @@ def _frontier_chart(result: OptimisationResult) -> str:
     better. Policies with a zero or unmeasured cost cannot be placed on it and are
     dropped from the chart (never plotted at a fabricated position).
     """
-    points: list[tuple[float, float, int]] = []  # (requests per $, f1, id)
+    points: list[tuple[float, float, bytes]] = []  # (requests per $, f1, blocking key)
     for policy in result.frontier:
         if policy.estimated_cost and policy.f1 is not None:
-            points.append((1.0 / policy.estimated_cost, policy.f1, id(policy)))
+            points.append((1.0 / policy.estimated_cost, policy.f1, _blocking_key(policy)))
     if len(points) < 2:
         return (
             "<p class='meta'>No trade-off chart: fewer than two frontier policies "
             "carry both a measured cost and a measurable F1.</p>"
         )
 
-    picked = {id(r.evaluated) for r in result.recommendations}
+    picked = {_blocking_key(r.evaluated) for r in result.recommendations}
     min_c, max_c = min(c for c, _, _ in points), max(c for c, _, _ in points)
     min_f, max_f = min(f for _, f, _ in points), max(f for _, f, _ in points)
     span_c = (max_c - min_c) or 1.0

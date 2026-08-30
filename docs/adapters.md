@@ -108,7 +108,7 @@ same objects go straight into the [router](runtime.md):
 
 ```python
 guards = [pii_guardrail(), keyword_guardrail("blocklist", phrases), llm_judge]
-matrix = await materialise(guards, labelled_cases)     # offline: score once
+matrix = await materialise(labelled_cases, guards, definitions)   # offline: score once
 result = optimise(matrix)                              # search
 router = GuardrailRouter(guards, result.recommendations[1].policy, definitions)
 ```

@@ -30,6 +30,10 @@ Constraints(
 With constraints supplied, the profiles are selected from the policies that clear every
 stated bar, and `result.warnings` says how many were excluded.
 
+Rates must lie in `[0, 1]` and latencies must be non-negative; every bar must be finite.
+`Constraints(min_recall=98)` — a percentage where a rate was meant — is refused at
+construction rather than accepted and then reported as a bar every policy misses.
+
 !!! tip "`max_latency_ms` bounds the average; `max_p95_latency_ms` bounds the tail"
     They are different promises, and a cascade separates them: escalating only the
     uncertain band pulls the **mean** down, while the escalated requests wait for the

@@ -148,8 +148,18 @@ _PII_PATTERNS: tuple[tuple[str, float], ...] = (
     # Payment-card-shaped digit runs, contiguous or grouped.
     (r"\b\d{13,19}\b", 0.8),
     (r"\b\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{1,7}\b", 0.8),
-    # Email addresses.
-    (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", 0.7),
+    # Email addresses, rewritten to be LINEAR on adversarial input. The previous
+    # `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` was quadratic on attacker-controlled
+    # request text (`a@....`, `a.a.a…@`): the local class contains `.`, so on a long dot
+    # run `re.search` re-scans toward a missing `@` from every start position. Three
+    # changes make it linear:
+    #   * BOUNDED, POSSESSIVE quantifiers ({1,64}+ local, {1,63}+ labels, ≤10 labels) — RFC
+    #     limits — so each start position does constant work and never backtracks;
+    #   * the domain uses a label class that EXCLUDES the dot, so its quantifiers never
+    #     compete for the same characters.
+    # Bounded/possessive forms need Python >= 3.11, which this package requires. (A
+    # numeric-only final label now matches too; acceptable for a severity screen.)
+    (r"[A-Za-z0-9._%+-]{1,64}+@[A-Za-z0-9-]{1,63}+(?:\.[A-Za-z0-9-]{1,63}+){1,10}", 0.7),
     # SG mobile/landline shapes, with or without +65.
     (r"\b(?:\+?65[ -]?)?[3689]\d{3}[ -]?\d{4}\b", 0.5),
     # IPv4 addresses.

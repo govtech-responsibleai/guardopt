@@ -124,13 +124,34 @@ def route_cost(
     )
 
 
+def nearest_rank_index(sample_size: int, percentile_value: int) -> int:
+    """The 0-based position of the nearest-rank percentile in a sorted sample.
+
+    Nearest-rank is the ceiling of p/100 * n, clamped into the sample: the p95 of 20
+    requests is the 19th slowest, and of 11 requests the 11th. Integer arithmetic, so the
+    answer is never a float's idea of 0.95 * n.
+
+    This used `round()`, which is not nearest-rank: round-half-even returns a LOWER order
+    statistic whenever the fractional part is below one half, and it did so for 142 of
+    the first 300 sample sizes — a quoted p95 covered as little as 90.9% of requests
+    (n = 11), a p50 as little as 40% (n = 5). Always optimistic, on the tail that
+    `Constraints.max_p95_latency_ms` and the explanations are written about.
+    """
+    if sample_size < 1:
+        raise ValueError(f"sample_size must be at least 1, got {sample_size}")
+    if not 0 <= percentile_value <= 100:
+        raise ValueError(f"percentile must be between 0 and 100, got {percentile_value}")
+    rank = -(-(percentile_value * sample_size) // 100)  # ceil, without floats
+    return min(sample_size - 1, max(0, rank - 1))
+
+
 def percentile(values: Sequence[float], percentile_value: int) -> float | None:
-    """Nearest-rank percentile. `None` for an empty sample rather than 0.0."""
+    """Nearest-rank percentile: a value some request actually had. `None` for an empty
+    sample rather than 0.0."""
     if not values:
         return None
     ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, round((percentile_value / 100) * len(ordered)) - 1))
-    return ordered[index]
+    return ordered[nearest_rank_index(len(ordered), percentile_value)]
 
 
 @dataclass(frozen=True, slots=True)

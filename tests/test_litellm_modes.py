@@ -65,3 +65,15 @@ def test_post_call_scans_the_response_and_says_so():
 def test_unknown_mode_is_refused():
     with pytest.raises(ValueError, match="mode must be one of"):
         export_litellm(POLICY, DEFINITIONS, mode="mid_call")
+
+
+def test_post_call_also_covers_streaming_responses():
+    """litellm never calls the success hook for stream=True completions; without the
+    streaming iterator hook a post_call guardrail enforced nothing for streaming
+    clients, and the export did not say so."""
+    export = export_litellm(POLICY, DEFINITIONS, mode="post_call")
+    assert "async_post_call_streaming_iterator_hook" in export.guardrail_module
+    assert "yield chunk" in export.guardrail_module
+    assert any("stream" in note.lower() for note in export.notes)
+    for mode in ("pre_call", "during_call"):
+        assert "streaming" not in export_litellm(POLICY, DEFINITIONS, mode=mode).guardrail_module

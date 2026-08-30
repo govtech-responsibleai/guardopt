@@ -14,7 +14,11 @@ from dataclasses import dataclass
 
 from guardopt.domain.inputs import GuardrailDefinition
 from guardopt.domain.policy import Policy
-from guardopt.integrations.common import definitions_literal, require_definitions_for
+from guardopt.integrations.common import (
+    definitions_literal,
+    require_definitions_for,
+    safe_for_generated_source,
+)
 
 __all__ = ["GuardrailsAIExport", "export_guardrails_ai"]
 
@@ -108,12 +112,16 @@ def export_guardrails_ai(
     """The policy as one Guardrails AI validator, behaviour-preserving by construction."""
     require_definitions_for(policy, definitions)
 
+    # Names are sanitised before templating — interpolated raw into the generated module's
+    # docstring / string literals, a crafted name would break out and inject code that runs
+    # when the caller imports the module. `policy.to_json()` and `definitions_literal` (via
+    # `!r`) are already safe.
     module = _MODULE_TEMPLATE.format(
-        policy_name=policy.name,
+        policy_name=safe_for_generated_source(policy.name),
         policy_json=policy.to_json(),
         definitions=definitions_literal(policy, definitions),
-        guard_names=", ".join(policy.enabled_names),
-        validator_name=validator_name,
+        guard_names=safe_for_generated_source(", ".join(policy.enabled_names)),
+        validator_name=safe_for_generated_source(validator_name),
     )
     notes = [
         "build_guards() is deliberately unimplemented: wire your scorers, then run "

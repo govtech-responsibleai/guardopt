@@ -24,7 +24,11 @@ from dataclasses import dataclass
 
 from guardopt.domain.inputs import GuardrailDefinition
 from guardopt.domain.policy import Policy
-from guardopt.integrations.common import definitions_literal, require_definitions_for
+from guardopt.integrations.common import (
+    definitions_literal,
+    require_definitions_for,
+    safe_for_generated_source,
+)
 
 __all__ = ["LiteLLMExport", "export_litellm"]
 
@@ -116,7 +120,10 @@ _PROMPT_TEXT_SNIPPET = '''\
 
 #: One hook per lifecycle phase, matching the installed CustomGuardrail signatures
 #: (verified live by tests/test_litellm_live.py). pre_call and during_call scan the
-#: request; post_call scans the model's RESPONSE — the output-guardrail case.
+#: request; post_call scans the model's RESPONSE — the output-guardrail case — and
+#: needs TWO hooks: litellm routes `stream=True` completions through the streaming
+#: iterator and never calls the success hook for them, so a post_call guardrail with
+#: only the success hook enforced nothing for every streaming client.
 _HOOKS = {
     "pre_call": (
         "    async def async_pre_call_hook(self, user_api_key_dict, cache, data, "
@@ -143,6 +150,28 @@ _HOOKS = {
         "                parts.append(str(content))\n"
         "        await self._decide(\" \".join(parts))\n"
         "        return response\n"
+        "\n"
+        "    async def async_post_call_streaming_iterator_hook(\n"
+        "        self, user_api_key_dict, response, request_data\n"
+        "    ):\n"
+        "        # Streaming responses never reach the success hook above: litellm\n"
+        "        # routes stream=True completions through this iterator instead. The\n"
+        "        # chunks are buffered to the end so the verdict covers the WHOLE\n"
+        "        # response -- the policy was measured on whole texts, and a verdict\n"
+        "        # on a prefix is not the measured policy -- then replayed.\n"
+        "        chunks = []\n"
+        "        async for chunk in response:\n"
+        "            chunks.append(chunk)\n"
+        "        parts = []\n"
+        "        for chunk in chunks:\n"
+        "            for choice in getattr(chunk, \"choices\", None) or []:\n"
+        "                delta = getattr(choice, \"delta\", None)\n"
+        "                content = getattr(delta, \"content\", None)\n"
+        "                if content:\n"
+        "                    parts.append(str(content))\n"
+        "        await self._decide(\"\".join(parts))\n"
+        "        for chunk in chunks:\n"
+        "            yield chunk\n"
     ),
 }
 
@@ -171,12 +200,16 @@ def export_litellm(
         raise ValueError(f"mode must be one of {_VALID_MODES}, got {mode!r}")
     require_definitions_for(policy, definitions)
 
+    # Names are sanitised before templating: interpolated raw into the generated module's
+    # docstring / string literals, a crafted name would break out and inject code that
+    # runs when the caller imports the module. `policy.to_json()` is JSON-escaped and
+    # `definitions_literal` uses `!r`, so those two are already safe.
     guard_names = ", ".join(policy.enabled_names)
     module = _MODULE_TEMPLATE.format(
-        policy_name=policy.name,
+        policy_name=safe_for_generated_source(policy.name),
         policy_json=policy.to_json(),
         definitions=definitions_literal(policy, definitions),
-        guard_names=guard_names,
+        guard_names=safe_for_generated_source(guard_names),
     ).replace("__HOOK__", _HOOKS[mode])
     config = _CONFIG_TEMPLATE.format(
         guardrail_name=guardrail_name, module_name=module_name, mode=mode
@@ -194,6 +227,12 @@ def export_litellm(
             "post_call scans the model's RESPONSE, not the prompt: the policy's "
             "thresholds were tuned on whatever text its matrix scored, so use a "
             "matrix of responses when optimising a response-side policy."
+        )
+        notes.append(
+            "Streaming responses (stream=true) are buffered to the end and judged "
+            "whole before being replayed to the client: a verdict on a prefix would "
+            "not be the measured policy. The client sees the reply arrive at once "
+            "rather than as a stream — the price of an output guardrail on a stream."
         )
     if len(policy.stages) > 1:
         notes.append(

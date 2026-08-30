@@ -20,6 +20,7 @@ it through untouched.
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
+from guardopt.domain.errors import GuardoptInputError
 from guardopt.domain.inputs import (
     GuardrailDefinition,
     GuardrailTestResult,
@@ -33,12 +34,15 @@ from guardopt.domain.types import (
 )
 
 
-class InvalidThresholdError(ValueError):
+class InvalidThresholdError(GuardoptInputError, ValueError):
     """A threshold pair that cannot be simulated: out of range, or ordered wrongly for
     the guardrail's score direction.
 
     Raised rather than clamped. A clamped threshold would produce plausible-looking
     metrics for a policy nobody asked for, and that policy could then be recommended.
+
+    Keeps `ValueError` as a second base so existing `except ValueError` sites are
+    unaffected.
     """
 
 

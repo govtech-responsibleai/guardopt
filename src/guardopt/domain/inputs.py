@@ -10,6 +10,14 @@ The second rule: **a gap is never a pass.** A test case that carries no result f
 enabled guardrail is a gap, and what it means is decided at simulation time by
 `OptimiserConfig.treat_missing_as`. Validation deliberately allows a sparse matrix
 rather than filling it in.
+
+The third: **every number is finite.** Python's `float` admits NaN and the infinities,
+and every comparison against NaN is `False` — so a NaN threshold never fires, a NaN
+score sits outside every range, and a `[nan, 1.0]` score range passes the `min < max`
+check because `nan >= 1.0` is also `False`. None of that raises; it produces a result
+that is internally consistent and describes nothing. So scores, ranges, default
+thresholds, latencies, costs and weights are all declared `allow_inf_nan=False`, and a
+non-finite value is refused where it enters, naming the field.
 """
 
 from typing import Any
@@ -32,11 +40,11 @@ class GuardrailDefinition(BaseModel):
 
     name: str = Field(min_length=1)
     score_direction: ScoreDirection
-    minimum_score: float
-    maximum_score: float
+    minimum_score: float = Field(allow_inf_nan=False)
+    maximum_score: float = Field(allow_inf_nan=False)
 
-    default_failed_threshold: float | None = None
-    default_warning_threshold: float | None = None
+    default_failed_threshold: float | None = Field(default=None, allow_inf_nan=False)
+    default_warning_threshold: float | None = Field(default=None, allow_inf_nan=False)
 
     is_mandatory: bool = False
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -59,7 +67,7 @@ class GuardrailDefinition(BaseModel):
     #: declared default threshold. Observed per-call costs on results take precedence
     #: where they exist; this fills where nothing was measured. `None` means the price
     #: is unknown, and an unknown price is never treated as free.
-    cost_per_call: float | None = Field(default=None, ge=0)
+    cost_per_call: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -115,14 +123,14 @@ class GuardrailTestResult(BaseModel):
     """
 
     guardrail_name: str = Field(min_length=1)
-    score: float | None = None
+    score: float | None = Field(default=None, allow_inf_nan=False)
     error: str | None = None
-    latency_ms: float | None = Field(default=None, ge=0)
+    latency_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     #: What this call actually cost, when the scorer reported it. Like `latency_ms`, an
     #: observation about the call rather than the verdict — and observed costs beat the
     #: declared `GuardrailDefinition.cost_per_call` where both exist.
-    cost: float | None = Field(default=None, ge=0)
+    cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -157,12 +165,22 @@ class TestCaseGuardrailResults(BaseModel):
     # BLOCK is the positive class.
     expected_action: ExpectedAction
 
-    weight: float = Field(default=1.0, gt=0)
+    weight: float = Field(default=1.0, gt=0, allow_inf_nan=False)
     guardrail_results: list[GuardrailTestResult]
 
     model_config = ConfigDict(from_attributes=True)
 
     _result_index: dict[str, GuardrailTestResult] = PrivateAttr(default_factory=dict)
+
+    #: `id()` of the list the index was built from. `model_copy(update={...})` copies
+    #: private state but does not re-run validators, so a copied case used to carry the
+    #: OLD index beside the NEW list — and every `result_for` read the score that had
+    #: just been replaced. `calibrated_cases` did exactly that: the pure path, the
+    #: candidates and the holdout silently read raw scores while the NumPy path read
+    #: calibrated ones. Checking the list's identity on every read makes the hazard
+    #: impossible instead of documented; the cost is one integer compare on a path that
+    #: already does a dict lookup.
+    _indexed_list_id: int = PrivateAttr(default=-1)
 
     def result_for(self, guardrail_name: str) -> GuardrailTestResult | None:
         """The recorded result, or None when this case has no row for that guardrail.
@@ -172,14 +190,16 @@ class TestCaseGuardrailResults(BaseModel):
 
         This index IS cached, unlike `OptimiserRequest.guardrail_by_name`, because it is
         the hottest path in the optimiser: once per case, per enabled guardrail, per
-        candidate policy — tens of millions of lookups on a real search. Treat a case as
-        immutable once built; `model_copy(update={"guardrail_results": ...})` would leave
-        this index stale.
+        candidate policy — tens of millions of lookups on a real search. It follows a
+        replaced `guardrail_results` list automatically (see `_indexed_list_id`). It does
+        NOT follow in-place mutation of the same list: treat a case as immutable once
+        built, and replace the list rather than appending to it.
         """
+        if self._indexed_list_id != id(self.guardrail_results):
+            self._rebuild_index()
         return self._result_index.get(guardrail_name)
 
-    @model_validator(mode="after")
-    def _index_results(self) -> "TestCaseGuardrailResults":
+    def _rebuild_index(self) -> None:
         index: dict[str, GuardrailTestResult] = {}
         for result in self.guardrail_results:
             if result.guardrail_name in index:
@@ -189,6 +209,11 @@ class TestCaseGuardrailResults(BaseModel):
                 )
             index[result.guardrail_name] = result
         self._result_index = index
+        self._indexed_list_id = id(self.guardrail_results)
+
+    @model_validator(mode="after")
+    def _index_results(self) -> "TestCaseGuardrailResults":
+        self._rebuild_index()
         return self
 
 

@@ -174,7 +174,7 @@ def apply_warning_ladder(
         # built" failure this module exists to avoid. Re-simulating the banded candidate
         # flat (the old behaviour) either tripped the blocking-unchanged assertion or
         # silently dropped the stage structure; doing neither is the honest option.
-        if getattr(selection.policy, "policy", None) is not None:
+        if selection.policy.policy is not None:
             updated.append(selection)
             if selection.profile is not STRICT:
                 notes.append(

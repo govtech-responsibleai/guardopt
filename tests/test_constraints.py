@@ -40,6 +40,8 @@ class Policy:
     precision: float | None = 0.9
     recall: float | None = 0.9
     estimated_latency_ms: float | None = 50.0
+    p95_latency_ms: float | None = None
+    estimated_cost: float | None = None
     false_positives: int = 1
     label: str = ""
 
@@ -183,3 +185,51 @@ def test_the_relaxed_fallback_prefers_the_closest_miss():
 
 def test_choosing_from_nothing_returns_nothing_rather_than_raising():
     assert best_by_objective([], Constraints(), ObjectiveWeights()) is None
+
+
+# ── a bar nothing could clear is refused at construction ────────────────────
+#
+# `Constraints(min_recall=98)` — a percentage where a rate was meant — used to be
+# accepted, and then every policy missed it: the recommendations came back UNCONSTRAINED
+# with "recall is 0.9, but must be at least 98" against the closest, leaving the reader to
+# notice that the bar, not the policy, was wrong.
+
+
+@pytest.mark.parametrize("field", ["min_recall", "min_precision", "max_false_positive_rate"])
+@pytest.mark.parametrize("value", [98, 1.5, -0.1])
+def test_a_rate_bar_outside_zero_and_one_is_refused(field, value):
+    with pytest.raises(ValueError, match=rf"{field} is a rate and must lie in \[0, 1\]"):
+        Constraints(**{field: value})
+
+
+@pytest.mark.parametrize("field", ["max_latency_ms", "max_p95_latency_ms"])
+def test_a_negative_latency_bar_is_refused(field):
+    with pytest.raises(ValueError, match=f"{field} must be non-negative"):
+        Constraints(**{field: -5.0})
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["min_recall", "min_precision", "max_false_positive_rate", "max_latency_ms", "max_p95_latency_ms"],
+)
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_a_non_finite_bar_is_refused(field, value):
+    """`value >= nan` is False for every value: a NaN bar reads as universally missed
+    with no number to argue with."""
+    with pytest.raises(ValueError, match=f"{field} must be a finite number"):
+        Constraints(**{field: value})
+
+
+def test_the_rate_and_latency_boundaries_are_legal():
+    """0 and 1 are rates; 0 ms is a bar. Vacuous bars are the caller's business."""
+    Constraints(
+        min_recall=0.0,
+        min_precision=1.0,
+        max_false_positive_rate=0.0,
+        max_latency_ms=0.0,
+        max_p95_latency_ms=0.0,
+    )
+
+
+def test_unset_bars_are_not_checked():
+    assert Constraints() == Constraints(min_recall=None)

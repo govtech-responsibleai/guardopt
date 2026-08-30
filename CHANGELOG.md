@@ -12,6 +12,32 @@ demanded.
 
 ### Fixed
 
+- The LiteLLM `post_call` export emits the streaming iterator hook as well as the
+  success hook; litellm never calls the latter for `stream=true`, so the output
+  guardrail enforced nothing for streaming clients.
+- The HTML report's trade-off chart rings the recommended picks again; matching
+  by object identity had drawn no rings since the recommendations were rebuilt
+  with their case IDs.
+- The router and `materialise` validate readings inside their containment: a
+  NaN/string/boolean score or a negative latency is an error reading naming the
+  signal (it used to raise out of the request), and a finite score outside the
+  declared range is an error, never a pass — a `-1` sentinel read as PASS.
+- `ShadowRouter.on_disagreement` is contained like the router's `on_decision`:
+  a raising hook is logged, and the incumbent's decision is returned.
+- The JSONL loader refuses a non-boolean `unsafe` (a stringified `"false"` was
+  truthy and labelled safe records unsafe) and names the line of a non-object.
+- Percentiles are genuinely nearest-rank (ceiling rank). `round()` returned a
+  lower order statistic for 142 of the first 300 sample sizes — a p95 covered
+  as little as 90.9% of requests.
+- `f_beta` is computed from integer counts with one division, so policies with
+  the same exact F-score tie and the documented tie-breakers actually run.
+  Two rounded floats gave exact 2/3 three different representations.
+- `TestCaseGuardrailResults.result_for` follows a replaced `guardrail_results`
+  list. `calibrated_cases` produced cases whose cached index still held the raw
+  scores, so the pure path (candidates, simulation, holdout, explanations) read
+  uncalibrated values while the NumPy search read calibrated ones.
+- `make build` cleans first: a stale `build/lib/` was leaking six retired v1
+  modules into the wheel.
 - Stage search enforces mandatory guardrails: a cascade omitting one can no longer be
   evaluated, selected, or recommended.
 - Staged selections survive `optimise()`'s warning ladder with their structure intact.
@@ -42,6 +68,19 @@ demanded.
 
 ### Added
 
+- **Dataset checks** (`check_dataset`, `domain/sanity.py`), run by `optimise()` on the
+  full dataset and leading `result.warnings`: one-label datasets, guardrails with no
+  score, a constant score or scores on only a handful of cases, and conflicting labels
+  on identical results — reported with `unavoidable_errors`, the floor on false
+  positives plus false negatives that no policy can beat. `OptimisationResult.dataset`
+  carries the structured report.
+- **Non-finite numbers are refused** wherever one enters: scores, ranges, default
+  thresholds, latencies, costs and weights on the input contract (a `[nan, 1.0]` range
+  used to pass the `min < max` check, because `nan >= 1.0` is `False`); blocking and
+  warning thresholds on policy bindings (`json.loads` accepts a bare `NaN`, and a NaN
+  line is a binding that never fires); and constraint bars, whose rates must also lie in
+  `[0, 1]` and latencies be non-negative — `Constraints(min_recall=98)` is refused
+  rather than reported as a bar every policy misses.
 - **The NumPy fast path** (`domain/vectorised.py`). The search's evaluation hot loop
   lowered to arrays: 19–40× faster on benchmark configs, identical verdicts. The pure
   per-case path stays in the codebase as the specification, held equal by a randomised

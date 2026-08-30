@@ -29,6 +29,7 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from guardopt.domain.errors import GuardoptError
 from guardopt.domain.inputs import GuardrailTestResult, TestCaseGuardrailResults
 from guardopt.domain.types import ExpectedAction
 
@@ -49,15 +50,16 @@ DEFAULT_TIMEOUT_SECONDS = 60.0
 NOT_RETURNED = "sentinel returned no score and no error for this guardrail"
 
 
-class SentinelNotConfiguredError(RuntimeError):
+class SentinelNotConfiguredError(GuardoptError, RuntimeError):
     """Sentinel scoring was asked for without a key or without a host.
 
     A distinct type so a caller can tell "you have not set this up" from "the call
     failed", and report the first as a configuration message rather than an outage.
+    Keeps `RuntimeError` as a second base for back-compatible catches.
     """
 
 
-class SentinelTransportError(RuntimeError):
+class SentinelTransportError(GuardoptError, RuntimeError):
     """A validate call that failed in transit, with enough left to debug it.
 
     Subclasses RuntimeError so existing callers catching that keep working. Carries what

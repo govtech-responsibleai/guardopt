@@ -14,7 +14,7 @@ NEGATIVE for every metric here. Warnings are measured separately (see
 """
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from statistics import NormalDist
@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict
 
 from guardopt.domain.inputs import TestCaseGuardrailResults
 from guardopt.domain.simulation import CaseEvaluation
-from guardopt.domain.types import ExpectedAction, PolicyOutcome
+from guardopt.domain.types import ExpectedAction, PolicyOutcome, RecommendationProfile
 
 
 class Classification(str, Enum):
@@ -135,6 +135,17 @@ def f_beta(cm: ConfusionMatrix, beta: float) -> float | None:
     """F-beta. beta < 1 favours precision (Minimal), beta > 1 favours recall (Strict).
 
         F_beta = (1 + b^2) * P * R / (b^2 * P + R)
+               = (1 + b^2) * TP / ((1 + b^2) * TP + b^2 * FN + FP)
+
+    Computed by the second form — integer counts and ONE division — and that is not a
+    micro-optimisation. Profile selection sorts on F first and only then on the
+    documented tie-breakers (precision, false positives, balance...). Computed from two
+    already-rounded floats, confusion matrices with the same exact F got different
+    doubles: 917 of 1,055 exact F1 values over TP/FP/FN < 30 had more than one float
+    form (exact 2/3 had three), so a 1-ulp accident decided the pick before any
+    tie-breaker ran. With one division from exact integers, equal rationals give equal
+    floats — for the profile betas (b^2 in {1/4, 1, 4}) the numerator and denominator
+    are exact doubles, so the result is the correctly rounded value of the true F.
 
     `None` when precision or recall is undefined — an unmeasurable input cannot yield a
     measurable score, and such a candidate must not be ranked against real ones.
@@ -144,15 +155,14 @@ def f_beta(cm: ConfusionMatrix, beta: float) -> float | None:
     if beta <= 0:
         raise ValueError(f"beta must be positive, got {beta}")
 
-    p, r = precision(cm), recall(cm)
-    if p is None or r is None:
-        return None
+    if cm.predicted_positives == 0 or cm.actual_positives == 0:
+        return None  # precision, respectively recall, is undefined
 
     beta_sq = beta * beta
-    denominator = beta_sq * p + r
-    if denominator == 0:
-        return 0.0
-    return (1 + beta_sq) * p * r / denominator
+    numerator = (1.0 + beta_sq) * cm.true_positives
+    # Both counts undefined is caught above, so the denominator is positive here: at
+    # least one of FP, FN is non-zero whenever TP is zero.
+    return numerator / (numerator + beta_sq * cm.false_negatives + cm.false_positives)
 
 
 def wilson_interval(
@@ -208,19 +218,38 @@ def recall_interval(
     return wilson_interval(cm.true_positives, cm.actual_positives, confidence=confidence)
 
 
+#: The one place the "which F-score is which profile's objective" fact lives. Minimal
+#: leans on precision (F0.5), Balanced trades evenly (F1), Strict leans on recall (F2).
+#: `selection`, `retune` and `stability` all read this rather than restating the betas —
+#: change a profile's objective here and every consumer moves with it.
+PROFILE_BETA: dict[RecommendationProfile, float] = {
+    RecommendationProfile.MINIMAL: 0.5,
+    RecommendationProfile.BALANCED: 1.0,
+    RecommendationProfile.STRICT: 2.0,
+}
+
+
+def profile_objective(
+    profile: RecommendationProfile,
+) -> Callable[[ConfusionMatrix], float | None]:
+    """The F-score function a profile is judged on — `f_beta` at that profile's beta."""
+    beta = PROFILE_BETA[profile]
+    return lambda cm: f_beta(cm, beta)
+
+
 def f05(cm: ConfusionMatrix) -> float | None:
     """Minimal's objective."""
-    return f_beta(cm, 0.5)
+    return f_beta(cm, PROFILE_BETA[RecommendationProfile.MINIMAL])
 
 
 def f1(cm: ConfusionMatrix) -> float | None:
     """Balanced's objective."""
-    return f_beta(cm, 1.0)
+    return f_beta(cm, PROFILE_BETA[RecommendationProfile.BALANCED])
 
 
 def f2(cm: ConfusionMatrix) -> float | None:
     """Strict's objective."""
-    return f_beta(cm, 2.0)
+    return f_beta(cm, PROFILE_BETA[RecommendationProfile.STRICT])
 
 
 @dataclass(frozen=True, slots=True)

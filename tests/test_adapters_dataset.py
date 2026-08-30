@@ -175,3 +175,17 @@ def test_a_bad_expected_action_names_the_value_it_refused(tmp_path):
 
     with pytest.raises(ValueError, match="'maybe'"):
         load_jsonl(path)
+
+
+def test_a_stringified_unsafe_flag_is_refused_not_read_as_truthy(tmp_path):
+    """CSV-to-JSONL conversions stringify booleans; "false" is truthy, and every safe
+    record used to load as unsafe with nothing refusing it."""
+    path = _write(tmp_path, '{"id": "001", "text": "x", "unsafe": "false"}\n')
+    with pytest.raises(ValueError, match="line 1: unsafe must be true or false, got 'false'"):
+        load_jsonl(path)
+
+
+def test_a_non_object_line_names_its_line_number(tmp_path):
+    path = _write(tmp_path, '{"id": "001", "text": "x", "unsafe": true}\n5\n')
+    with pytest.raises(ValueError, match="line 2: expected a JSON object, got int"):
+        load_jsonl(path)

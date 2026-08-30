@@ -25,6 +25,7 @@ Wire the comparison straight into the deployment story::
 """
 
 import asyncio
+import logging
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -33,6 +34,8 @@ from typing import Any
 from guardopt.runtime.router import GuardrailRouter, RoutedDecision
 
 __all__ = ["ShadowComparison", "ShadowRouter"]
+
+_logger = logging.getLogger("guardopt.runtime.shadow")
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +121,17 @@ class ShadowRouter:
                 (primary_decision.outcome.value, candidate_decision.outcome.value)
             ] += 1
             if self.on_disagreement is not None:
-                self.on_disagreement(request, primary_decision, candidate_decision)
+                try:
+                    self.on_disagreement(request, primary_decision, candidate_decision)
+                except Exception:
+                    # The primary decision is already made. A logging sink that raises
+                    # must not turn observing a disagreement into failing the request —
+                    # the same containment the router gives its own on_decision hook.
+                    _logger.exception(
+                        "on_disagreement hook raised for policy %r; primary decision "
+                        "returned unaffected",
+                        primary_decision.policy_name,
+                    )
 
         return primary_decision
 

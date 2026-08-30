@@ -16,6 +16,7 @@ the two ever disagree the optimiser is measuring something the runtime does not 
 """
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from guardopt.domain.inputs import GuardrailDefinition, TestCaseGuardrailResults
 from guardopt.domain.policy import Policy, Stage
@@ -27,7 +28,56 @@ from guardopt.domain.types import (
     StageCondition,
 )
 
-__all__ = ["evaluate_staged_policy_on_case", "stage_verdict"]
+__all__ = [
+    "StageTransition",
+    "apply_stage_transition",
+    "evaluate_staged_policy_on_case",
+    "stage_verdict",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class StageTransition:
+    """What one stage's verdict does to a walk in progress.
+
+    `decided` is the policy verdict if this stage ends the walk (FAIL when it blocked,
+    PASS when it cleared an `allow_exit`), else `None` to continue. `uncertain` is the
+    carried flag after this stage; `exited_early` marks the `allow_exit` case.
+    """
+
+    decided: PolicyOutcome | None
+    uncertain: bool
+    exited_early: bool
+
+
+def apply_stage_transition(
+    verdict: PolicyOutcome,
+    uncertain: bool,
+    *,
+    resolves_uncertainty: bool,
+    allow_exit: bool,
+) -> StageTransition:
+    """The cascade's stop/continue rule, in ONE place.
+
+    Both the offline walk (`evaluate_staged_policy_on_case`) and the live router drive
+    this, so the two cannot drift on the thing that decides a cascade: FAIL ends the walk;
+    a WARNING makes the request uncertain; only a genuinely clean stage marked
+    `resolves_uncertainty` clears that flag (a warned or errored stage never does); and
+    `allow_exit` releases only a request that is not uncertain — so an errored stage can
+    never grant the exit. (The NumPy `staged_outcome_codes` restates the same rule in
+    array form, pinned equal by the parity tests.)
+    """
+    if verdict is PolicyOutcome.FAIL:
+        return StageTransition(PolicyOutcome.FAIL, uncertain, False)
+
+    if verdict is PolicyOutcome.WARNING:
+        uncertain = True
+    elif resolves_uncertainty:
+        uncertain = False
+
+    if allow_exit and not uncertain:
+        return StageTransition(PolicyOutcome.PASS, uncertain, True)
+    return StageTransition(None, uncertain, False)
 
 
 def stage_verdict(outcomes: Sequence[GuardrailOutcome]) -> PolicyOutcome:
@@ -104,24 +154,19 @@ def evaluate_staged_policy_on_case(
         missing.extend(stage_missing)
 
         verdict = stage_verdict([outcome for _, outcome in stage_outcomes])
+        transition = apply_stage_transition(
+            verdict,
+            uncertain,
+            resolves_uncertainty=stage.resolves_uncertainty,
+            allow_exit=stage.allow_exit,
+        )
+        uncertain = transition.uncertain
 
-        if verdict is PolicyOutcome.FAIL:
-            # Already blocked; paying for the rest of the cascade buys nothing.
-            final = PolicyOutcome.FAIL
-            stages_skipped.extend(s.name for s in policy.stages[index + 1 :])
-            break
-
-        if verdict is PolicyOutcome.WARNING:
-            uncertain = True
-        elif stage.resolves_uncertainty:
-            # Only a genuinely clean stage settles the question. A stage that warned or
-            # could not run has not answered it, and clearing the flag here would turn an
-            # outage into a clean pass.
-            uncertain = False
-
-        if stage.allow_exit and not uncertain:
-            final = PolicyOutcome.PASS
-            exited_early = True
+        if transition.decided is not None:
+            # FAIL (already blocked) or PASS (cleared an allow_exit): either way the walk
+            # ends here and the rest of the cascade is skipped, never paid for.
+            final = transition.decided
+            exited_early = transition.exited_early
             stages_skipped.extend(s.name for s in policy.stages[index + 1 :])
             break
 

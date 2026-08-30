@@ -12,13 +12,15 @@ same things by the same names, and a policy binding maps onto a reading with no 
 step to get wrong.
 """
 
+import math
+import numbers
 import asyncio
 import functools
 import inspect
 import re
 import time
 from collections.abc import Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -52,6 +54,47 @@ class GuardrailReading:
     error: str | None = None
 
 
+def validated_reading(reading: GuardrailReading) -> GuardrailReading:
+    """The reading if its numbers are measurements, else an error reading saying why.
+
+    A guardrail that returns NaN, a string, a boolean, or a negative latency has not
+    produced a measurement, and the two things that used to happen with one were both
+    wrong: the router built a `GuardrailTestResult` from it OUTSIDE its containment, so
+    the validation error propagated out of the request (a 500 where a verdict was due);
+    and a bad latency flowed into the trace as if timed. The package already has exact
+    semantics for "this guardrail could not run" — an error reading, never a pass — so
+    junk becomes that, naming the offending signal.
+
+    Scores are checked for type and finiteness only; the declared score RANGE needs the
+    definition, so the router checks it per binding.
+    """
+    problems: list[str] = []
+    for signal, score in reading.scores.items():
+        if not _is_finite_number(score):
+            problems.append(f"signal '{signal}' scored {score!r}")
+    for label, value in (("latency_ms", reading.latency_ms), ("cost", reading.cost)):
+        if value is not None and (not _is_finite_number(value) or value < 0):
+            problems.append(f"{label} was {value!r}")
+    if not problems:
+        return reading
+    return GuardrailReading(
+        guardrail_name=reading.guardrail_name,
+        error=(
+            "invalid reading: "
+            + "; ".join(problems)
+            + " — a value that is not a finite non-negative number is not a measurement"
+        ),
+    )
+
+
+def _is_finite_number(value: object) -> bool:
+    return (
+        isinstance(value, numbers.Real)
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
 @runtime_checkable
 class Guardrail(Protocol):
     """Anything that can score a request."""
@@ -63,16 +106,27 @@ class Guardrail(Protocol):
         ...
 
 
-#: Where synchronous guardrails run. A dedicated pool, NOT `asyncio.to_thread`, because
-#: to_thread borrows the loop's default executor — and `asyncio.run` joins the default
-#: executor's threads at shutdown. A timed-out call the router had abandoned would then
-#: stall `run_sync` at loop teardown for exactly the time the budget saved. This pool is
-#: never joined by loop teardown; construction spawns no threads until first use.
+#: The DEFAULT pool where synchronous guardrails run when a caller supplies none. A
+#: dedicated pool, NOT `asyncio.to_thread`, because to_thread borrows the loop's default
+#: executor — and `asyncio.run` joins the default executor's threads at shutdown. A
+#: timed-out call the router had abandoned would then stall `run_sync` at loop teardown for
+#: exactly the time the budget saved. This pool is never joined by loop teardown;
+#: construction spawns no threads until first use.
+#:
+#: It is process-global and shared. A timed-out sync call is abandoned but its thread keeps
+#: running until the blocked read returns (see the router), so under sustained hangs this
+#: pool can saturate — and a shared pool means one router's bad guardrail starves every
+#: other. A caller that needs isolation or a hard bound passes its OWN `ThreadPoolExecutor`
+#: (sized, and disposable) to `GuardrailRouter(..., executor=...)` or `materialise(...,
+#: executor=...)`; that pool then absorbs the hangs alone.
 _SYNC_GUARDRAIL_EXECUTOR = ThreadPoolExecutor(thread_name_prefix="guardopt-sync-guardrail")
 
 
 async def read_guardrail(
-    guardrail: Guardrail, request: Mapping[str, Any]
+    guardrail: Guardrail,
+    request: Mapping[str, Any],
+    *,
+    executor: Executor | None = None,
 ) -> GuardrailReading:
     """Call a guardrail, awaiting it if it is async.
 
@@ -81,6 +135,10 @@ async def read_guardrail(
     blocking every other in-flight request — and the trace then records `max(timings)`
     for concurrency that never happened. The router's own docstring calls those "latency
     figures that were fiction"; this is what makes them fact.
+
+    `executor` selects the pool sync guardrails run in; `None` uses the shared process
+    default. Pass a bounded, disposable pool to isolate a router's blocking calls from
+    every other router in the process (see `_SYNC_GUARDRAIL_EXECUTOR`).
 
     One consequence, stated plainly: a sync call that never returns keeps its worker
     thread until it does. The router's timeout budget bounds the *request*; nothing can
@@ -94,12 +152,20 @@ async def read_guardrail(
         return await guardrail.evaluate(request)
 
     result = await asyncio.get_running_loop().run_in_executor(
-        _SYNC_GUARDRAIL_EXECUTOR, functools.partial(guardrail.evaluate, request)
+        executor or _SYNC_GUARDRAIL_EXECUTOR, functools.partial(guardrail.evaluate, request)
     )
     if inspect.isawaitable(result):
         # A sync callable that returned an awaitable — legal under the Protocol.
         result = await result
     return result
+
+
+#: Default upper bound on the text a `HeuristicGuardrail` will scan. Regex cost grows with
+#: input length even for a linear pattern, and request text is attacker-controlled on the
+#: live path — an unbounded scan turns "big request" into "pinned CPU core". 100k
+#: characters is far above any legitimate prompt while capping the worst case; raise it per
+#: guardrail if your traffic genuinely runs longer.
+DEFAULT_MAX_SCAN_CHARS = 100_000
 
 
 class HeuristicGuardrail:
@@ -109,6 +175,10 @@ class HeuristicGuardrail:
     per label wins. With a single label the reading is keyed by the guardrail's own name,
     so it behaves as an ordinary single-score guardrail rather than forcing every caller to
     know about signals.
+
+    `max_scan_chars` bounds how much of the request text is scanned (see
+    `DEFAULT_MAX_SCAN_CHARS`); text beyond it is not matched. A match past the cap is the
+    price of never letting a crafted or accidental megabyte-long input dominate a CPU core.
     """
 
     def __init__(
@@ -117,11 +187,14 @@ class HeuristicGuardrail:
         label_patterns: Mapping[str, Sequence[tuple[str, float]]],
         base_latency_ms: float = 1.0,
         cost: float = 0.0,
+        *,
+        max_scan_chars: int = DEFAULT_MAX_SCAN_CHARS,
     ) -> None:
         self.name = name
         self.labels = tuple(label_patterns)
         self.base_latency_ms = base_latency_ms
         self.cost = cost
+        self.max_scan_chars = max_scan_chars
         self._compiled = {
             label: [(re.compile(pattern, re.IGNORECASE), score) for pattern, score in patterns]
             for label, patterns in label_patterns.items()
@@ -137,6 +210,8 @@ class HeuristicGuardrail:
     def evaluate(self, request: Mapping[str, Any]) -> GuardrailReading:
         started = time.perf_counter()
         text = str(request.get("text", ""))
+        if len(text) > self.max_scan_chars:
+            text = text[: self.max_scan_chars]
         single = len(self._compiled) == 1
 
         scores: dict[str, float] = {}

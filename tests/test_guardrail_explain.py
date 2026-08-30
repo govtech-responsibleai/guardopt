@@ -33,7 +33,10 @@ from guardopt.domain.inputs import (
     OptimiserRequest,
     TestCaseGuardrailResults,
 )
+from dataclasses import replace
+
 from guardopt.domain.search import PolicyEvaluator, SearchDiagnostics, search_policies
+from guardopt.optimise import populate_case_ids
 from guardopt.domain.selection import ProfileSelection, select_profiles
 from guardopt.domain.simulation import GuardrailThresholds, PolicyCandidate
 from guardopt.domain.types import (
@@ -73,7 +76,12 @@ def _optimised():
     laddered = apply_warning_ladder(
         selection.selections, request.guardrail_by_name, evaluator.evaluate
     )
-    return laddered.selections, request.guardrail_by_name, diagnostics
+    # optimise() populates per-case IDs on the policies it recommends (the search omits
+    # them for speed); do the same here so the explanations can count warned/errored cases.
+    selections = tuple(
+        replace(s, policy=populate_case_ids(s.policy, request)) for s in laddered.selections
+    )
+    return selections, request.guardrail_by_name, diagnostics
 
 
 def _by_profile(profile: RecommendationProfile) -> ProfileSelection:
@@ -124,7 +132,10 @@ def _selection_for(
     candidate: PolicyCandidate,
     profile: RecommendationProfile = MINIMAL,
 ) -> tuple[ProfileSelection, dict]:
-    evaluated = PolicyEvaluator(request).evaluate(candidate)
+    # The search omits per-case ID lists for speed; `optimise` rebuilds them for the
+    # policies it recommends, and `explain_selection` reads them (errored/excluded/flagged
+    # case IDs). These tests call explain directly, so populate the IDs as optimise would.
+    evaluated = populate_case_ids(PolicyEvaluator(request).evaluate(candidate), request)
     return (
         ProfileSelection(profile=profile, policy=evaluated, used_fallback=False),
         request.guardrail_by_name,

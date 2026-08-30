@@ -44,6 +44,7 @@ class Fake:
     unsafe_warning_coverage: float | None = 0.0
     enabled_count: int = 1
     estimated_latency_ms: float | None = None
+    estimated_cost: float | None = None
     lexical_key: tuple = ()
 
 
@@ -178,7 +179,8 @@ def test_outcome_signature_is_populated_and_matches_the_dataset_length():
     evaluator = PolicyEvaluator(request)
     evaluated = evaluator.evaluate(golden.reference_policy(golden.PRECISE))
     assert len(evaluated.outcome_signature) == len(request.test_cases)
-    assert set(evaluated.outcome_signature) <= {"pass", "warning", "fail", "excluded"}
+    # A `bytes` of outcome codes now: PASS=0, WARNING=1, FAIL=2, excluded=3.
+    assert set(evaluated.outcome_signature) <= {0, 1, 2, 3}
 
 
 def test_two_policies_with_a_no_op_guardrail_share_a_signature():

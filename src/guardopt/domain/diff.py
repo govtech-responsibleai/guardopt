@@ -20,6 +20,7 @@ Two rules carry the honesty here:
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from guardopt.domain.evaluation import SIGNATURE_CODE_NAMES
 from guardopt.domain.inputs import GuardrailDefinition, TestCaseGuardrailResults
 from guardopt.domain.policy import Policy
 from guardopt.domain.types import ExpectedAction, MissingResultPolicy, PolicyOutcome
@@ -130,8 +131,11 @@ def diff_policies(
     after_codes, after_excluded, _, _ = staged_outcome_codes(
         arrays, definitions, candidate, missing_policy
     )
-    before = signature_from_codes(before_codes, before_excluded)
-    after = signature_from_codes(after_codes, after_excluded)
+    # The signature is a `bytes` of outcome codes; decode to verdict names here so a
+    # `CaseChange` reads "pass"/"warning"/"fail" (what the diff prose and its readers
+    # expect) rather than a raw code. Diff runs over one dataset, not the search loop.
+    before = tuple(SIGNATURE_CODE_NAMES[code] for code in signature_from_codes(before_codes, before_excluded))
+    after = tuple(SIGNATURE_CODE_NAMES[code] for code in signature_from_codes(after_codes, after_excluded))
 
     fail = PolicyOutcome.FAIL.value
     changes: list[CaseChange] = []

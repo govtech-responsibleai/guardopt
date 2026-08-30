@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from guardopt.domain.route_cost import nearest_rank_index
 from guardopt.domain.inputs import GuardrailDefinition, TestCaseGuardrailResults
 from guardopt.domain.metrics import BinaryOutcomeReport, ConfusionMatrix
 from guardopt.domain.metrics_intervention import InterventionReport
@@ -52,8 +53,15 @@ __all__ = [
 
 PASS, WARNING, FAIL = np.uint8(0), np.uint8(1), np.uint8(2)
 
-#: Index 3 is the excluded slot — see `signature_from_codes`.
-_OUTCOME_NAMES = np.array(["pass", "warning", "fail", "excluded"], dtype=object)
+#: The excluded slot in a signature — see `signature_from_codes`. Kept in sync with the
+#: plain-int codes in `domain.evaluation` that the pure consumers (selection, stability,
+#: monitor) compare against, so nothing imports numpy just to read a verdict.
+EXCLUDED = np.uint8(3)
+
+#: One (guardrail, thresholds) pair maps to one (fail, warn) mask pair over the fixed
+#: dataset, invariant across every candidate that contains it. A search-lifetime cache of
+#: this shape, keyed on `(name, thresholds)`, is threaded through as `mask_cache`.
+MaskCache = dict
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,10 +142,23 @@ def _guardrail_masks(
     arrays: CaseArrays,
     definition: GuardrailDefinition,
     thresholds: GuardrailThresholds,
+    cache: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """(fail, warning) masks for one guardrail — `simulation.evaluate_guardrail` in
     array form: both bands closed at the riskier edge, mirrored for LOWER_IS_RISKIER,
-    and nothing fires where no score exists."""
+    and nothing fires where no score exists.
+
+    When `cache` is supplied, the result is memoised on `(name, thresholds)`: this pair is
+    invariant across every candidate that contains it, so a search over 10^5 candidates
+    recomputes ~60 distinct masks instead of ~10^6 identical ones. `validate_thresholds`
+    then also runs only on a cache miss, off the per-candidate hot path.
+    """
+    if cache is not None:
+        key = (definition.name, thresholds)
+        hit = cache.get(key)
+        if hit is not None:
+            return hit
+
     validate_thresholds(definition, thresholds)
 
     scores = arrays.scores[definition.name]
@@ -157,7 +178,10 @@ def _guardrail_masks(
             if thresholds.warning is not None
             else np.zeros(arrays.case_count, dtype=bool)
         )
-    return fail, warn
+    result = (fail, warn)
+    if cache is not None:
+        cache[key] = result
+    return result
 
 
 def flat_outcome_codes(
@@ -165,12 +189,14 @@ def flat_outcome_codes(
     definitions: Mapping[str, GuardrailDefinition],
     candidate: PolicyCandidate,
     missing_policy: MissingResultPolicy,
+    mask_cache: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """One flat candidate over every case: (codes, excluded, errored_case).
 
     `errored_case` is "at least one enabled guardrail returned ERROR here" — what the
     intervention report counts. Aggregation is `simulation._aggregate`: any FAIL wins,
-    else any WARNING or ERROR warns, else PASS.
+    else any WARNING or ERROR warns, else PASS. `mask_cache` (optional) memoises the
+    per-guardrail masks across candidates — see `_guardrail_masks`.
     """
     n = arrays.case_count
     fail_any = np.zeros(n, dtype=bool)
@@ -179,7 +205,7 @@ def flat_outcome_codes(
     errored_any = np.zeros(n, dtype=bool)
 
     for name, thresholds in candidate.entries:
-        fail, warn = _guardrail_masks(arrays, definitions[name], thresholds)
+        fail, warn = _guardrail_masks(arrays, definitions[name], thresholds, mask_cache)
         errored = ~arrays.valid[name]  # missing or errored: both are ERROR outcomes
         fail_any |= fail
         unclean_any |= warn | errored
@@ -200,6 +226,7 @@ def staged_outcome_codes(
     definitions: Mapping[str, GuardrailDefinition],
     policy: Policy,
     missing_policy: MissingResultPolicy,
+    mask_cache: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """One staged policy over every case: (codes, excluded, errored_case, stages_run).
 
@@ -230,7 +257,7 @@ def staged_outcome_codes(
         stage_errored = np.zeros(n, dtype=bool)
         for binding in stage.guardrails:
             fail, warn = _guardrail_masks(
-                arrays, definitions[binding.name], binding.thresholds()
+                arrays, definitions[binding.name], binding.thresholds(), mask_cache
             )
             errored = ~arrays.valid[binding.name]
             stage_fail |= fail
@@ -271,10 +298,17 @@ def staged_outcome_codes(
 
 
 def binary_report_from_codes(
-    arrays: CaseArrays, codes: np.ndarray, excluded: np.ndarray
+    arrays: CaseArrays, codes: np.ndarray, excluded: np.ndarray, with_ids: bool = True
 ) -> BinaryOutcomeReport:
     """`metrics.build_binary_report`, from codes. Positive class = BLOCK; predicted
-    positive = policy FAIL and nothing else — a WARNING is a predicted negative."""
+    positive = policy FAIL and nothing else — a WARNING is a predicted negative.
+
+    `with_ids=False` returns the confusion-matrix COUNTS but empty per-case ID tuples.
+    Selection and the Pareto filter read only the counts and rates; the ID lists are
+    needed solely by the explanations of the handful of policies actually recommended, so
+    the search (10^5 candidates) skips materialising eight object-array→tuple copies per
+    candidate and `optimise` rebuilds them with `with_ids=True` for the picks alone.
+    """
     scored = ~excluded
     blocked = scored & (codes == FAIL)
     unsafe = arrays.unsafe
@@ -284,14 +318,25 @@ def binary_report_from_codes(
     fn = scored & ~blocked & unsafe
     tn = scored & ~blocked & ~unsafe
 
+    confusion_matrix = ConfusionMatrix(
+        true_positives=int(tp.sum()),
+        false_positives=int(fp.sum()),
+        true_negatives=int(tn.sum()),
+        false_negatives=int(fn.sum()),
+    )
+    if not with_ids:
+        return BinaryOutcomeReport(
+            confusion_matrix=confusion_matrix,
+            true_positive_test_case_ids=(),
+            false_positive_test_case_ids=(),
+            true_negative_test_case_ids=(),
+            false_negative_test_case_ids=(),
+            excluded_test_case_ids=(),
+        )
+
     ids = arrays.case_ids
     return BinaryOutcomeReport(
-        confusion_matrix=ConfusionMatrix(
-            true_positives=int(tp.sum()),
-            false_positives=int(fp.sum()),
-            true_negatives=int(tn.sum()),
-            false_negatives=int(fn.sum()),
-        ),
+        confusion_matrix=confusion_matrix,
         true_positive_test_case_ids=tuple(ids[tp]),
         false_positive_test_case_ids=tuple(ids[fp]),
         true_negative_test_case_ids=tuple(ids[tn]),
@@ -312,8 +357,14 @@ def intervention_report_from_codes(
     codes: np.ndarray,
     excluded: np.ndarray,
     errored_case: np.ndarray,
+    with_ids: bool = True,
 ) -> InterventionReport:
-    """`metrics_intervention.build_intervention_report`, from codes."""
+    """`metrics_intervention.build_intervention_report`, from codes.
+
+    `with_ids=False` computes every rate but leaves the per-case ID tuples empty — the
+    rates drive selection, the IDs only the final explanations. See
+    `binary_report_from_codes`.
+    """
     scored = ~excluded
     unsafe = arrays.unsafe & scored
     safe = ~arrays.unsafe & scored
@@ -343,16 +394,25 @@ def intervention_report_from_codes(
         safe_warning_rate=_ratio(safe_warned, safe_count - safe_blocked),
         total_unsafe_detection_coverage=_ratio(unsafe_blocked + unsafe_warned, unsafe_count),
         total_safe_intervention_rate=_ratio(safe_blocked + safe_warned, safe_count),
-        warned_unsafe_test_case_ids=tuple(ids[warned & unsafe]),
-        warned_safe_test_case_ids=tuple(ids[warned & safe]),
-        errored_test_case_ids=tuple(ids[errored]),
+        warned_unsafe_test_case_ids=tuple(ids[warned & unsafe]) if with_ids else (),
+        warned_safe_test_case_ids=tuple(ids[warned & safe]) if with_ids else (),
+        errored_test_case_ids=tuple(ids[errored]) if with_ids else (),
     )
 
 
-def signature_from_codes(codes: np.ndarray, excluded: np.ndarray) -> tuple[str, ...]:
-    """The per-case verdict string tuple `selection.deduplicate_by_behaviour` keys on."""
-    merged = np.where(excluded, np.uint8(3), codes)
-    return tuple(_OUTCOME_NAMES[merged])
+def signature_from_codes(codes: np.ndarray, excluded: np.ndarray) -> bytes:
+    """The per-case verdict codes `selection.deduplicate_by_behaviour` keys on.
+
+    A compact `bytes` of outcome codes (PASS=0, WARNING=1, FAIL=2, excluded=3): two
+    policies with the same signature are indistinguishable on this dataset, whatever their
+    guardrail lists say. `bytes` rather than `tuple[str, ...]` because the search caches
+    every distinct evaluated policy and the signature is n_cases long — the tuple was 500
+    string pointers per policy and ran to gigabytes on a large search; bytes is ~7x
+    smaller, builds faster, and hashes as fast. The plain-int codes in
+    `domain.evaluation` (`SIGNATURE_FAIL` etc.) name these for the pure consumers.
+    """
+    merged = np.where(excluded, EXCLUDED, codes).astype(np.uint8)
+    return merged.tobytes()
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -427,21 +487,36 @@ def route_latency_arrays(
     definitions: Mapping[str, GuardrailDefinition],
     policy: Policy,
     stages_run: np.ndarray,
+    stage_latency_cache: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-case route latency: the stages that ran, added up.
 
     Skipped stages cost nothing; an untimed stage contributes nothing rather than
     voiding the route — the same rule the pure path follows.
+
+    `stage_latency_cache` (optional) memoises each stage's per-case latency on
+    `(frozenset(names), parallel)`. A stage's own latency is threshold-invariant — only
+    the `stages_run` mask that gates it below is per-policy — so the same stage shape
+    recurs across thousands of cascades and is computed once.
     """
     total = np.zeros(arrays.case_count, dtype=np.float64)
     measured = np.zeros(arrays.case_count, dtype=bool)
     for index, stage in enumerate(policy.stages):
-        values, timed = stage_latency_arrays(
-            arrays,
-            [binding.name for binding in stage.guardrails],
-            definitions,
-            parallel=stage.parallel,
-        )
+        names = [binding.name for binding in stage.guardrails]
+        if stage_latency_cache is not None:
+            key = (frozenset(names), stage.parallel)
+            cached = stage_latency_cache.get(key)
+            if cached is not None:
+                values, timed = cached
+            else:
+                values, timed = stage_latency_arrays(
+                    arrays, names, definitions, parallel=stage.parallel
+                )
+                stage_latency_cache[key] = (values, timed)
+        else:
+            values, timed = stage_latency_arrays(
+                arrays, names, definitions, parallel=stage.parallel
+            )
         contributes = stages_run[index] & timed
         total = total + np.where(contributes, values, 0.0)
         measured = measured | contributes
@@ -449,11 +524,9 @@ def route_latency_arrays(
 
 
 def _nearest_rank(ordered: np.ndarray, percentile_value: int) -> float:
-    """`route_cost.percentile`, on a sorted array: a latency some request actually had."""
-    index = max(
-        0, min(len(ordered) - 1, round((percentile_value / 100) * len(ordered)) - 1)
-    )
-    return float(ordered[index])
+    """`route_cost.percentile`, on a sorted array: a latency some request actually had.
+    One definition of the rank (`nearest_rank_index`), so the two paths cannot drift."""
+    return float(ordered[nearest_rank_index(len(ordered), percentile_value)])
 
 
 def summarise_latency_arrays(

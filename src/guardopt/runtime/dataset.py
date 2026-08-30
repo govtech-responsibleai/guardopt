@@ -24,6 +24,10 @@ __all__ = ["load_jsonl", "parse_record"]
 
 def parse_record(payload: dict, *, where: str) -> LabelledRecord:
     """One record, or a ValueError naming where it went wrong."""
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"{where}: expected a JSON object, got {type(payload).__name__}"
+        )
     if "id" not in payload:
         raise ValueError(f"{where}: no 'id'")
     if "text" not in payload:
@@ -39,8 +43,16 @@ def parse_record(payload: dict, *, where: str) -> LabelledRecord:
             ) from error
     elif "unsafe" in payload:
         # The earlier format. Kept because those files exist, and silently rejecting them
-        # would be a worse migration story than reading them.
-        expected = ExpectedAction.BLOCK if payload["unsafe"] else ExpectedAction.ALLOW
+        # would be a worse migration story than reading them. A real boolean only: a
+        # CSV-to-JSONL conversion that stringifies booleans writes "false", which is
+        # truthy — every safe record silently became unsafe and every threshold moved.
+        flag = payload["unsafe"]
+        if not isinstance(flag, bool):
+            raise ValueError(
+                f"{where}: unsafe must be true or false, got {flag!r}. A string like "
+                f"'false' is truthy in Python and would have labelled this record unsafe."
+            )
+        expected = ExpectedAction.BLOCK if flag else ExpectedAction.ALLOW
     else:
         raise ValueError(
             f"{where}: no 'expected_action' (or legacy 'unsafe'). Every record needs the "

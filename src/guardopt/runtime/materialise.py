@@ -29,6 +29,7 @@ Two consequences of that rule, both learned the hard way:
 
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import Executor
 
 from guardopt.domain.inputs import (
     GuardrailDefinition,
@@ -37,7 +38,7 @@ from guardopt.domain.inputs import (
 )
 from guardopt.domain.matrix import ScoreMatrix
 from guardopt.domain.types import ExpectedAction
-from guardopt.runtime.protocol import Guardrail, GuardrailReading, read_guardrail
+from guardopt.runtime.protocol import Guardrail, GuardrailReading, read_guardrail, validated_reading
 
 __all__ = ["LabelledRecord", "materialise", "materialise_sync"]
 
@@ -59,13 +60,13 @@ class LabelledRecord:
 
 
 async def _read_contained(
-    guard: Guardrail, request: Mapping[str, object]
+    guard: Guardrail, request: Mapping[str, object], executor: Executor | None
 ) -> GuardrailReading:
     """One call that cannot take the run down with it. Same rule as the router: an
     exception is a louder way of saying "this guardrail could not run", and the package
     already has semantics for that. Cancellation still propagates."""
     try:
-        return await read_guardrail(guard, request)
+        return validated_reading(await read_guardrail(guard, request, executor=executor))
     except Exception as error:
         return GuardrailReading(
             guardrail_name=guard.name, error=f"{type(error).__name__}: {error}"
@@ -92,11 +93,14 @@ def _error_rows(guard: Guardrail, reading: GuardrailReading) -> list[GuardrailTe
 
 
 async def _score_record(
-    record: LabelledRecord, guards: Sequence[Guardrail]
+    record: LabelledRecord,
+    guards: Sequence[Guardrail],
+    definitions: Mapping[str, GuardrailDefinition],
+    executor: Executor | None,
 ) -> TestCaseGuardrailResults:
     """Score one record with every guardrail, concurrently — they are independent."""
     readings = await asyncio.gather(
-        *[_read_contained(guard, record.request) for guard in guards]
+        *[_read_contained(guard, record.request, executor) for guard in guards]
     )
 
     results: list[GuardrailTestResult] = []
@@ -105,6 +109,23 @@ async def _score_record(
             results.extend(_error_rows(guard, reading))
             continue
         for signal, score in reading.scores.items():
+            definition = definitions.get(signal)
+            if definition is not None and not definition.contains_score(score):
+                # The matrix would be refused wholesale by the input contract for one
+                # such score, discarding the whole run. One row's error is the truthful
+                # record: this call answered with a number the scale cannot hold.
+                results.append(
+                    GuardrailTestResult(
+                        guardrail_name=signal,
+                        error=(
+                            f"score {score} is outside the declared range "
+                            f"[{definition.minimum_score}, {definition.maximum_score}]"
+                        ),
+                        latency_ms=reading.latency_ms,
+                        cost=reading.cost,
+                    )
+                )
+                continue
             results.append(
                 GuardrailTestResult(
                     guardrail_name=signal,
@@ -128,6 +149,7 @@ async def materialise(
     *,
     max_concurrent_records: int = 1,
     on_progress: Callable[[int, int], None] | None = None,
+    executor: Executor | None = None,
 ) -> ScoreMatrix:
     """Score every record with every guardrail.
 
@@ -139,6 +161,11 @@ async def materialise(
     `on_progress` is called as `on_progress(completed, total)` after each record. Under
     concurrency the calls arrive in completion order, not dataset order — it reports how
     much work is done, not which record finished.
+
+    `executor` selects the thread pool synchronous guardrails run in; `None` uses the
+    shared process default. Pass a bounded, disposable pool to keep a long scoring run's
+    blocking calls from starving other work in the process (see
+    `runtime.protocol._SYNC_GUARDRAIL_EXECUTOR`).
     """
     if max_concurrent_records < 1:
         raise ValueError(
@@ -147,11 +174,12 @@ async def materialise(
 
     total = len(records)
     completed = 0
+    by_name = {definition.name: definition for definition in definitions}
 
     if max_concurrent_records == 1:
         cases: list[TestCaseGuardrailResults] = []
         for record in records:
-            cases.append(await _score_record(record, guards))
+            cases.append(await _score_record(record, guards, by_name, executor))
             completed += 1
             if on_progress is not None:
                 on_progress(completed, total)
@@ -162,7 +190,7 @@ async def materialise(
     async def scored(record: LabelledRecord) -> TestCaseGuardrailResults:
         nonlocal completed
         async with semaphore:
-            case = await _score_record(record, guards)
+            case = await _score_record(record, guards, by_name, executor)
         completed += 1
         if on_progress is not None:
             on_progress(completed, total)
@@ -179,6 +207,7 @@ def materialise_sync(
     *,
     max_concurrent_records: int = 1,
     on_progress: Callable[[int, int], None] | None = None,
+    executor: Executor | None = None,
 ) -> ScoreMatrix:
     """`materialise` for callers not already in an event loop."""
     return asyncio.run(
@@ -188,5 +217,6 @@ def materialise_sync(
             definitions,
             max_concurrent_records=max_concurrent_records,
             on_progress=on_progress,
+            executor=executor,
         )
     )

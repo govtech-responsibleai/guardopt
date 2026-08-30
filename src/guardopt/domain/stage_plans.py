@@ -25,6 +25,8 @@ from collections.abc import Iterator, Sequence
 from functools import cache
 from itertools import permutations
 
+from guardopt.domain.errors import SearchSpaceError
+
 __all__ = [
     "StagePlan",
     "StagePlanSpaceTooLargeError",
@@ -38,12 +40,15 @@ __all__ = [
 StagePlan = tuple[tuple[str, ...], ...]
 
 
-class StagePlanSpaceTooLargeError(RuntimeError):
+class StagePlanSpaceTooLargeError(SearchSpaceError, RuntimeError):
     """The combined stage-plan and threshold space exceeds the configured limit.
 
     Raised *before* enumeration begins, and carries the estimate — a refusal that does not
     quote the number leaves the caller unable to decide whether to raise the limit or
     narrow the problem.
+
+    Shares `SearchSpaceError` with `CandidateSpaceTooLargeError` so "any search-space
+    overflow" is one `except`; keeps `RuntimeError` for back-compatible catches.
     """
 
     def __init__(self, estimated_size: int, limit: int) -> None:

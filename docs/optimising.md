@@ -127,6 +127,44 @@ Real traffic contains the awkward middle, and your dataset must too:
 Those groups are where the false positives live, and false positives are the entire cost
 side of the trade.
 
+### What is refused, and what is flagged
+
+The input contract refuses what it can prove wrong, naming the case and the guardrail: a
+score outside the range you declared for its guardrail, a `NaN` or infinite number
+anywhere (scores, ranges, default thresholds, latencies, costs, weights), a duplicate case
+ID, a result for a guardrail you did not define. Each would otherwise produce a result
+that is internally consistent and describes nothing — every comparison against `NaN` is
+`False`, so a `NaN` threshold is a guardrail that silently never fires.
+
+What the contract cannot see is whether a well-formed dataset can support the question.
+`optimise` runs `check_dataset` on it first, and the findings **lead** `result.warnings`:
+
+- **One label only.** No `block` cases means recall is undefined for every policy and no
+  recommendation is possible. No `allow` cases means nothing can be a false positive, so
+  "block everything" scores perfectly and the search cannot measure over-blocking.
+- **A guardrail that separates nothing.** No score on any case, the same score on every
+  case, or scores on only a handful — no threshold can change a verdict, so the guardrail
+  contributes only its cost.
+- **Conflicting labels on identical results.** A policy's verdict depends on a case's
+  guardrail results and nothing else, so two cases with identical results get the same
+  verdict under every policy; if their labels differ, one of them is wrong whatever the
+  policy. The report counts these as `unavoidable_errors` — a floor on false positives
+  plus false negatives that no search can dig beneath — and names an example pair.
+
+```python
+from guardopt import check_dataset
+
+report = check_dataset(request)
+report.unavoidable_errors        # 0 when the labels are consistent
+for finding in report.findings:
+    print(finding.kind.value, finding.message)
+```
+
+These are reported rather than refused: all-safe traffic is a legitimate thing to have (a
+canary run, a drift check) — the problem is asking it to place a recall threshold. The
+structured report is on `result.dataset`; refuse on a finding yourself if your pipeline
+should.
+
 ## Reading the results
 
 ### The recommendation
@@ -218,6 +256,11 @@ Only 1 meaningfully distinct policies exist on the precision/recall frontier, so
 minimal: no warning bands — the next stricter profile does not block any of its
   guardrails harder.
 ```
+
+Findings about the dataset itself, when there are any, come first — they are the cause
+of what follows. An all-`allow` dataset opens with *"No case is labelled block. Recall is
+undefined for every policy..."* and only then reports that nothing could be recommended.
+See [What is refused, and what is flagged](#what-is-refused-and-what-is-flagged).
 
 ### How it searched
 

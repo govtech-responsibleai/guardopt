@@ -27,9 +27,15 @@ services, and the generated module raises with instructions until you wire them.
 
 All three lifecycle modes are supported, each emitting the matching hook:
 `mode="pre_call"` and `"during_call"` scan the prompt; `mode="post_call"` scans the
-**model's response** — the output-guardrail case — via `async_post_call_success_hook`.
-A response-side policy should be optimised on a matrix of responses: the thresholds
-describe whatever text their matrix scored.
+**model's response** — the output-guardrail case — via `async_post_call_success_hook`
+*and* `async_post_call_streaming_iterator_hook`. The second is not optional: LiteLLM
+routes `stream=true` completions through the streaming iterator and never calls the
+success hook for them, so a post_call guardrail with only the success hook enforces
+nothing for streaming clients. The export buffers a stream to its end, judges the whole
+response, then replays the chunks — a verdict on a prefix would not be the measured
+policy, and the client seeing the reply arrive at once is the price of an output
+guardrail on a stream. A response-side policy should be optimised on a matrix of
+responses: the thresholds describe whatever text their matrix scored.
 
 This export is **verified against a live proxy**, not only the docs: config-file
 loading of the generated module, a blocked request surfacing as a clean HTTP 400

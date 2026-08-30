@@ -138,3 +138,18 @@ def test_calibrated_definition_normalises_scale_and_drops_defaults():
     assert updated.score_direction is ScoreDirection.HIGHER_IS_RISKIER
     assert (updated.minimum_score, updated.maximum_score) == (0.0, 1.0)
     assert updated.default_failed_threshold is None
+
+
+def test_calibrated_cases_are_readable_through_result_for():
+    """The regression behind the stale-index fix: the pure path (candidates, simulation,
+    holdout, explanations) reads scores through `result_for`, the NumPy path through the
+    list. They must agree, or the search and its report describe different data."""
+    cases = _separable_cases()
+    definition = _definition()
+    calibration = calibrate(definition, cases)
+    for translated in calibrated_cases(cases, {definition.name: calibration}):
+        row = translated.guardrail_results[0]
+        via_index = translated.result_for(row.guardrail_name)
+        assert via_index is not None
+        assert via_index.score == row.score
+        assert 0.0 <= row.score <= 1.0

@@ -39,9 +39,15 @@ classifiers = [
 # the per-case pure path remains the semantic specification, pinned equal by the
 # parity tests. The `http` and `sentinel` extras are declared in the slices that give
 # them content (P12 and P2), not speculatively here.
+#
+# Capped below the next major, the same discipline the docs deps below already use. The
+# numpy floor admits 2.x (the suite runs on it), but a hypothetical numpy 3 could change
+# the array semantics the vectorised path leans on and would surface only through the
+# (currently un-CI'd) parity tests; `<3` blocks that silent jump. pydantic 3 is the same
+# bet for the validation layer. Widen the cap deliberately once a new major is tested.
 dependencies = [
-  "pydantic>=2.7",
-  "numpy>=1.26",
+  "pydantic>=2.7,<3",
+  "numpy>=1.26,<3",
 ]
 
 [project.optional-dependencies]

@@ -5,6 +5,8 @@ the shadow candidate can never fail or change the enforced decision, and a reloa
 validates completely or changes nothing.
 """
 
+import logging
+
 import pytest
 
 from guardopt.domain.inputs import GuardrailDefinition
@@ -148,3 +150,21 @@ def test_a_bad_reload_is_refused_and_the_old_policy_keeps_running():
     decision = router.run_sync({"text": "x"})
     assert decision.policy_name == "v1", "a refused reload must change nothing"
     assert decision.outcome is PolicyOutcome.PASS
+
+
+def test_a_raising_disagreement_hook_is_contained(caplog):
+    """The module's first rule is that the candidate can never fail the request; its own
+    logging hook could. Same containment as the router's on_decision hook."""
+
+    def bad_hook(request, primary, candidate):
+        raise RuntimeError("the review queue is down")
+
+    shadow = ShadowRouter(
+        primary=_router(failed=0.9), candidate=_router(failed=0.1), on_disagreement=bad_hook
+    )
+    with caplog.at_level(logging.ERROR, logger="guardopt.runtime.shadow"):
+        decision = shadow.run_sync({"text": "x"})  # must not raise
+
+    assert decision.outcome is PolicyOutcome.PASS  # the incumbent's verdict, intact
+    assert "on_disagreement hook raised" in caplog.text
+    assert shadow.comparison().disagreements == 1

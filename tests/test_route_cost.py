@@ -188,3 +188,53 @@ def test_cost_is_totalled_not_averaged():
 
 def test_the_report_is_a_plain_value():
     assert isinstance(build_route_cost_report([1.0], [0.1]), RouteCostReport)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Nearest-rank means the ceiling rank
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_nearest_rank_is_the_ceiling_rank():
+    """`round()` returned a lower order statistic for 142 of the first 300 sample sizes:
+    the p95 of 11 requests was the 10th slowest (90.9% coverage), the p50 of 5 the 2nd."""
+    from guardopt.domain.route_cost import nearest_rank_index
+
+    assert nearest_rank_index(11, 95) == 10  # ceil(10.45) = 11th -> last
+    assert nearest_rank_index(20, 95) == 18  # ceil(19.0) = 19th
+    assert nearest_rank_index(30, 95) == 28  # ceil(28.5) = 29th, not round-half-even's 28th
+    assert nearest_rank_index(5, 50) == 2  # the median, not the 2nd of 5
+    assert nearest_rank_index(1, 99) == 0
+    assert nearest_rank_index(7, 0) == 0
+    assert nearest_rank_index(7, 100) == 6
+
+
+def test_nearest_rank_matches_the_definition_for_every_sample_size():
+    import math
+    from fractions import Fraction
+
+    from guardopt.domain.route_cost import nearest_rank_index
+
+    for n in range(1, 301):
+        for p in (50, 95, 99):
+            expected = min(n - 1, max(0, math.ceil(Fraction(p, 100) * n) - 1))
+            assert nearest_rank_index(n, p) == expected, (n, p)
+
+
+def test_a_quoted_p95_covers_at_least_95_percent_of_requests():
+    from guardopt.domain.route_cost import percentile
+
+    for n in range(1, 120):
+        values = [float(i) for i in range(1, n + 1)]
+        p95 = percentile(values, 95)
+        assert p95 is not None
+        assert sum(v <= p95 for v in values) / n >= 0.95, n
+
+
+def test_nearest_rank_refuses_an_empty_sample_and_a_bad_percentile():
+    from guardopt.domain.route_cost import nearest_rank_index
+
+    with pytest.raises(ValueError, match="sample_size must be at least 1"):
+        nearest_rank_index(0, 95)
+    with pytest.raises(ValueError, match="percentile must be between 0 and 100"):
+        nearest_rank_index(10, 101)
