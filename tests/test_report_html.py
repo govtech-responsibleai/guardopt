@@ -124,3 +124,17 @@ def test_cli_writes_the_html_file(tmp_path):
     html = (tmp_path / "report.html").read_text(encoding="utf-8")
     assert html.startswith("<!doctype html>")
     assert "scores.csv" in html
+
+
+def test_the_recommended_picks_are_ringed_on_the_chart():
+    """Picks were matched to frontier points by id(); optimise rebuilds each
+    recommendation with its case IDs, so nothing matched and no ring was ever drawn."""
+    result = optimise(_request())
+    html = render_html(result, title="rings")
+
+    ringable = [
+        r for r in result.recommendations
+        if r.evaluated.estimated_cost and r.evaluated.f1 is not None
+    ]
+    assert ringable, "the fixture should produce costed, measurable picks"
+    assert html.count('r="10"') == len(ringable)

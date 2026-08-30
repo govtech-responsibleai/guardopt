@@ -12,6 +12,9 @@ demanded.
 
 ### Fixed
 
+- The HTML report's trade-off chart rings the recommended picks again; matching
+  by object identity had drawn no rings since the recommendations were rebuilt
+  with their case IDs.
 - The router and `materialise` validate readings inside their containment: a
   NaN/string/boolean score or a negative latency is an error reading naming the
   signal (it used to raise out of the request), and a finite score outside the
