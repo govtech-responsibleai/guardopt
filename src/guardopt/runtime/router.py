@@ -35,7 +35,7 @@ from guardopt.domain.simulation import (
     validate_thresholds,
 )
 from guardopt.domain.types import GuardrailOutcome, PolicyOutcome, StageCondition
-from guardopt.runtime.protocol import Guardrail, GuardrailReading, read_guardrail
+from guardopt.runtime.protocol import Guardrail, GuardrailReading, read_guardrail, validated_reading
 
 __all__ = ["GuardrailRouter", "RouteTrace", "RoutedDecision"]
 
@@ -307,6 +307,20 @@ class GuardrailRouter:
                         guardrail_name=binding.name,
                         error="the guardrail returned no score for this signal",
                     )
+                elif not self.definitions[binding.name].contains_score(score):
+                    # Offline, a score outside the declared range is refused by the
+                    # input contract, so the matrix never held one. Live, it used to be
+                    # thresholded as if real — and a scorer's -1 "could not score"
+                    # sentinel read as PASS on a higher-is-riskier binding. The offline
+                    # refusal becomes the runtime's error reading: never a pass.
+                    definition = self.definitions[binding.name]
+                    result = GuardrailTestResult(
+                        guardrail_name=binding.name,
+                        error=(
+                            f"score {score} is outside the declared range "
+                            f"[{definition.minimum_score}, {definition.maximum_score}]"
+                        ),
+                    )
                 else:
                     result = GuardrailTestResult(guardrail_name=binding.name, score=score)
 
@@ -398,7 +412,9 @@ class GuardrailRouter:
         """
         try:
             if self.timeout_ms is None:
-                return await read_guardrail(guard, request, executor=self.executor)
+                return validated_reading(
+                    await read_guardrail(guard, request, executor=self.executor)
+                )
 
             task = asyncio.ensure_future(
                 read_guardrail(guard, request, executor=self.executor)
@@ -412,7 +428,7 @@ class GuardrailRouter:
                     error=f"timed out after {self.timeout_ms:g} ms",
                     latency_ms=self.timeout_ms,
                 )
-            return task.result()
+            return validated_reading(task.result())
         except Exception as error:
             return GuardrailReading(
                 guardrail_name=guard.name,

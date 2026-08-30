@@ -38,7 +38,7 @@ from guardopt.domain.inputs import (
 )
 from guardopt.domain.matrix import ScoreMatrix
 from guardopt.domain.types import ExpectedAction
-from guardopt.runtime.protocol import Guardrail, GuardrailReading, read_guardrail
+from guardopt.runtime.protocol import Guardrail, GuardrailReading, read_guardrail, validated_reading
 
 __all__ = ["LabelledRecord", "materialise", "materialise_sync"]
 
@@ -66,7 +66,7 @@ async def _read_contained(
     exception is a louder way of saying "this guardrail could not run", and the package
     already has semantics for that. Cancellation still propagates."""
     try:
-        return await read_guardrail(guard, request, executor=executor)
+        return validated_reading(await read_guardrail(guard, request, executor=executor))
     except Exception as error:
         return GuardrailReading(
             guardrail_name=guard.name, error=f"{type(error).__name__}: {error}"
@@ -95,6 +95,7 @@ def _error_rows(guard: Guardrail, reading: GuardrailReading) -> list[GuardrailTe
 async def _score_record(
     record: LabelledRecord,
     guards: Sequence[Guardrail],
+    definitions: Mapping[str, GuardrailDefinition],
     executor: Executor | None,
 ) -> TestCaseGuardrailResults:
     """Score one record with every guardrail, concurrently — they are independent."""
@@ -108,6 +109,23 @@ async def _score_record(
             results.extend(_error_rows(guard, reading))
             continue
         for signal, score in reading.scores.items():
+            definition = definitions.get(signal)
+            if definition is not None and not definition.contains_score(score):
+                # The matrix would be refused wholesale by the input contract for one
+                # such score, discarding the whole run. One row's error is the truthful
+                # record: this call answered with a number the scale cannot hold.
+                results.append(
+                    GuardrailTestResult(
+                        guardrail_name=signal,
+                        error=(
+                            f"score {score} is outside the declared range "
+                            f"[{definition.minimum_score}, {definition.maximum_score}]"
+                        ),
+                        latency_ms=reading.latency_ms,
+                        cost=reading.cost,
+                    )
+                )
+                continue
             results.append(
                 GuardrailTestResult(
                     guardrail_name=signal,
@@ -156,11 +174,12 @@ async def materialise(
 
     total = len(records)
     completed = 0
+    by_name = {definition.name: definition for definition in definitions}
 
     if max_concurrent_records == 1:
         cases: list[TestCaseGuardrailResults] = []
         for record in records:
-            cases.append(await _score_record(record, guards, executor))
+            cases.append(await _score_record(record, guards, by_name, executor))
             completed += 1
             if on_progress is not None:
                 on_progress(completed, total)
@@ -171,7 +190,7 @@ async def materialise(
     async def scored(record: LabelledRecord) -> TestCaseGuardrailResults:
         nonlocal completed
         async with semaphore:
-            case = await _score_record(record, guards, executor)
+            case = await _score_record(record, guards, by_name, executor)
         completed += 1
         if on_progress is not None:
             on_progress(completed, total)

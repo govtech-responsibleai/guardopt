@@ -130,6 +130,15 @@ never a pass and never permits an early exit — the same fail-safe path an erro
 takes. In a parallel stage, one raising guardrail does not discard its siblings'
 readings.
 
+A guardrail that **returns junk** becomes an error reading too, inside the same
+containment: a score that is `NaN`, infinite, a string or a boolean, or a latency or
+cost that is negative or non-finite, voids the reading with a message naming the
+signal. So does a finite score **outside the guardrail's declared range** — offline the
+input contract refuses such a score, so the matrix never held one, and live it is the
+same fact: a scorer's `-1` "could not score" sentinel is an error, not the most confident
+PASS on the scale. `materialise` applies both rules per row, so one junk answer is one
+error cell rather than a refused run.
+
 A guardrail that **hangs** is cut off by `timeout_ms`, when set. A timed-out call is
 abandoned (its thread runs to completion in the background, its result discarded) and
 recorded as an error — bounding the worst-case latency of a live request whatever a

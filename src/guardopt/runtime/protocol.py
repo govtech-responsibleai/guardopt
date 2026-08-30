@@ -12,6 +12,8 @@ same things by the same names, and a policy binding maps onto a reading with no 
 step to get wrong.
 """
 
+import math
+import numbers
 import asyncio
 import functools
 import inspect
@@ -50,6 +52,47 @@ class GuardrailReading:
     latency_ms: float | None = None
     cost: float | None = None
     error: str | None = None
+
+
+def validated_reading(reading: GuardrailReading) -> GuardrailReading:
+    """The reading if its numbers are measurements, else an error reading saying why.
+
+    A guardrail that returns NaN, a string, a boolean, or a negative latency has not
+    produced a measurement, and the two things that used to happen with one were both
+    wrong: the router built a `GuardrailTestResult` from it OUTSIDE its containment, so
+    the validation error propagated out of the request (a 500 where a verdict was due);
+    and a bad latency flowed into the trace as if timed. The package already has exact
+    semantics for "this guardrail could not run" — an error reading, never a pass — so
+    junk becomes that, naming the offending signal.
+
+    Scores are checked for type and finiteness only; the declared score RANGE needs the
+    definition, so the router checks it per binding.
+    """
+    problems: list[str] = []
+    for signal, score in reading.scores.items():
+        if not _is_finite_number(score):
+            problems.append(f"signal '{signal}' scored {score!r}")
+    for label, value in (("latency_ms", reading.latency_ms), ("cost", reading.cost)):
+        if value is not None and (not _is_finite_number(value) or value < 0):
+            problems.append(f"{label} was {value!r}")
+    if not problems:
+        return reading
+    return GuardrailReading(
+        guardrail_name=reading.guardrail_name,
+        error=(
+            "invalid reading: "
+            + "; ".join(problems)
+            + " — a value that is not a finite non-negative number is not a measurement"
+        ),
+    )
+
+
+def _is_finite_number(value: object) -> bool:
+    return (
+        isinstance(value, numbers.Real)
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
 
 
 @runtime_checkable

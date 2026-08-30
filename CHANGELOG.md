@@ -12,6 +12,10 @@ demanded.
 
 ### Fixed
 
+- The router and `materialise` validate readings inside their containment: a
+  NaN/string/boolean score or a negative latency is an error reading naming the
+  signal (it used to raise out of the request), and a finite score outside the
+  declared range is an error, never a pass — a `-1` sentinel read as PASS.
 - `ShadowRouter.on_disagreement` is contained like the router's `on_decision`:
   a raising hook is logged, and the incumbent's decision is returned.
 - The JSONL loader refuses a non-boolean `unsafe` (a stringified `"false"` was
