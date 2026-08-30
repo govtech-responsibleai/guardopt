@@ -12,6 +12,10 @@ demanded.
 
 ### Fixed
 
+- `TestCaseGuardrailResults.result_for` follows a replaced `guardrail_results`
+  list. `calibrated_cases` produced cases whose cached index still held the raw
+  scores, so the pure path (candidates, simulation, holdout, explanations) read
+  uncalibrated values while the NumPy search read calibrated ones.
 - `make build` cleans first: a stale `build/lib/` was leaking six retired v1
   modules into the wheel.
 - Stage search enforces mandatory guardrails: a cascade omitting one can no longer be

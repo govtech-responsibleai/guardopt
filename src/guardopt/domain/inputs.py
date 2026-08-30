@@ -172,6 +172,16 @@ class TestCaseGuardrailResults(BaseModel):
 
     _result_index: dict[str, GuardrailTestResult] = PrivateAttr(default_factory=dict)
 
+    #: `id()` of the list the index was built from. `model_copy(update={...})` copies
+    #: private state but does not re-run validators, so a copied case used to carry the
+    #: OLD index beside the NEW list — and every `result_for` read the score that had
+    #: just been replaced. `calibrated_cases` did exactly that: the pure path, the
+    #: candidates and the holdout silently read raw scores while the NumPy path read
+    #: calibrated ones. Checking the list's identity on every read makes the hazard
+    #: impossible instead of documented; the cost is one integer compare on a path that
+    #: already does a dict lookup.
+    _indexed_list_id: int = PrivateAttr(default=-1)
+
     def result_for(self, guardrail_name: str) -> GuardrailTestResult | None:
         """The recorded result, or None when this case has no row for that guardrail.
 
@@ -180,14 +190,16 @@ class TestCaseGuardrailResults(BaseModel):
 
         This index IS cached, unlike `OptimiserRequest.guardrail_by_name`, because it is
         the hottest path in the optimiser: once per case, per enabled guardrail, per
-        candidate policy — tens of millions of lookups on a real search. Treat a case as
-        immutable once built; `model_copy(update={"guardrail_results": ...})` would leave
-        this index stale.
+        candidate policy — tens of millions of lookups on a real search. It follows a
+        replaced `guardrail_results` list automatically (see `_indexed_list_id`). It does
+        NOT follow in-place mutation of the same list: treat a case as immutable once
+        built, and replace the list rather than appending to it.
         """
+        if self._indexed_list_id != id(self.guardrail_results):
+            self._rebuild_index()
         return self._result_index.get(guardrail_name)
 
-    @model_validator(mode="after")
-    def _index_results(self) -> "TestCaseGuardrailResults":
+    def _rebuild_index(self) -> None:
         index: dict[str, GuardrailTestResult] = {}
         for result in self.guardrail_results:
             if result.guardrail_name in index:
@@ -197,6 +209,11 @@ class TestCaseGuardrailResults(BaseModel):
                 )
             index[result.guardrail_name] = result
         self._result_index = index
+        self._indexed_list_id = id(self.guardrail_results)
+
+    @model_validator(mode="after")
+    def _index_results(self) -> "TestCaseGuardrailResults":
+        self._rebuild_index()
         return self
 
 

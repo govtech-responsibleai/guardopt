@@ -463,3 +463,37 @@ def test_a_non_finite_score_is_refused_on_the_result_not_only_against_the_range(
     every range. The result itself now names the real problem."""
     with pytest.raises(ValidationError, match="finite"):
         GuardrailTestResult(guardrail_name="gr_a", score=math.nan)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# The per-case index follows a replaced result list
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_the_case_index_follows_a_replaced_result_list():
+    """`model_copy(update=...)` does not re-run validators. The copied case used to keep
+    the OLD index beside the NEW list, so `result_for` read the score that had just been
+    replaced — which is how `calibrated_cases` silently fed raw scores to the pure path."""
+    case = _case(results=[GuardrailTestResult(guardrail_name="gr_a", score=0.2)])
+    copied = case.model_copy(
+        update={
+            "guardrail_results": [
+                GuardrailTestResult(guardrail_name="gr_a", score=0.9),
+                GuardrailTestResult(guardrail_name="gr_b", score=0.1),
+            ]
+        }
+    )
+
+    assert copied.result_for("gr_a") is not None
+    assert copied.result_for("gr_a").score == 0.9
+    assert copied.result_for("gr_b") is not None
+    assert copied.result_for("gr_b").score == 0.1
+    assert case.result_for("gr_a").score == 0.2  # the original is untouched
+    assert case.result_for("gr_b") is None
+
+
+def test_a_replaced_result_list_with_duplicates_is_refused_on_read():
+    result = GuardrailTestResult(guardrail_name="gr_a", score=0.2)
+    copied = _case(results=[result]).model_copy(update={"guardrail_results": [result, result]})
+    with pytest.raises(ValueError, match="duplicate guardrail result for 'gr_a'"):
+        copied.result_for("gr_a")
