@@ -12,6 +12,8 @@ demanded.
 
 ### Fixed
 
+- `ShadowRouter.on_disagreement` is contained like the router's `on_decision`:
+  a raising hook is logged, and the incumbent's decision is returned.
 - The JSONL loader refuses a non-boolean `unsafe` (a stringified `"false"` was
   truthy and labelled safe records unsafe) and names the line of a non-object.
 - Percentiles are genuinely nearest-rank (ceiling rank). `round()` returned a
