@@ -12,6 +12,9 @@ demanded.
 
 ### Fixed
 
+- Percentiles are genuinely nearest-rank (ceiling rank). `round()` returned a
+  lower order statistic for 142 of the first 300 sample sizes — a p95 covered
+  as little as 90.9% of requests.
 - `f_beta` is computed from integer counts with one division, so policies with
   the same exact F-score tie and the documented tie-breakers actually run.
   Two rounded floats gave exact 2/3 three different representations.

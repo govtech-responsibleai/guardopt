@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from guardopt.domain.route_cost import nearest_rank_index
 from guardopt.domain.inputs import GuardrailDefinition, TestCaseGuardrailResults
 from guardopt.domain.metrics import BinaryOutcomeReport, ConfusionMatrix
 from guardopt.domain.metrics_intervention import InterventionReport
@@ -523,11 +524,9 @@ def route_latency_arrays(
 
 
 def _nearest_rank(ordered: np.ndarray, percentile_value: int) -> float:
-    """`route_cost.percentile`, on a sorted array: a latency some request actually had."""
-    index = max(
-        0, min(len(ordered) - 1, round((percentile_value / 100) * len(ordered)) - 1)
-    )
-    return float(ordered[index])
+    """`route_cost.percentile`, on a sorted array: a latency some request actually had.
+    One definition of the rank (`nearest_rank_index`), so the two paths cannot drift."""
+    return float(ordered[nearest_rank_index(len(ordered), percentile_value)])
 
 
 def summarise_latency_arrays(
