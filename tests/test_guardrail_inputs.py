@@ -8,6 +8,8 @@ A validator that rejects the right input for the wrong reason is still a bug, an
 `pytest.raises(ValidationError)` alone would not catch it.
 """
 
+import math
+
 import pytest
 from pydantic import ValidationError
 
@@ -395,3 +397,69 @@ def test_config_rejects_degenerate_search_limits(field, bad_value):
     """A zero limit would silently produce an empty search rather than an error."""
     with pytest.raises(ValidationError):
         OptimiserConfig(**{field: bad_value})
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Non-finite numbers
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Python's float admits NaN and the infinities, and every comparison against NaN is
+# False. Nothing downstream raises on one: a NaN threshold never fires, a NaN score is
+# outside every range, and a [nan, 1.0] range passes the min < max check because
+# `nan >= 1.0` is False too. Refused where the number enters, naming the field.
+
+NON_FINITE = [math.nan, math.inf, -math.inf]
+
+
+@pytest.mark.parametrize("value", NON_FINITE)
+@pytest.mark.parametrize("field", ["score", "latency_ms", "cost"])
+def test_result_rejects_a_non_finite_number(field, value):
+    kwargs = {"guardrail_name": "gr_a", "score": 0.5, field: value}
+    # Finiteness is checked before `ge=0`, so even -inf on a bounded field is named as
+    # non-finite rather than merely negative.
+    with pytest.raises(ValidationError, match=rf"{field}\s+Input should be a finite number"):
+        GuardrailTestResult(**kwargs)
+
+
+@pytest.mark.parametrize("value", NON_FINITE)
+@pytest.mark.parametrize(
+    "field",
+    [
+        "minimum_score",
+        "maximum_score",
+        "default_failed_threshold",
+        "default_warning_threshold",
+        "cost_per_call",
+    ],
+)
+def test_guardrail_definition_rejects_a_non_finite_number(field, value):
+    with pytest.raises(ValidationError, match=rf"{field}\s+Input should be a finite number"):
+        _guardrail(**{field: value})
+
+
+def test_a_nan_score_range_is_refused_rather_than_slipping_past_the_ordering_check():
+    """`nan >= 1.0` is False, so before this rule a [nan, 1.0] range was accepted — and
+    then `contains_score` rejected every score against it."""
+    with pytest.raises(ValidationError, match=r"minimum_score\s+Input should be a finite number"):
+        _guardrail(minimum_score=math.nan, maximum_score=1.0)
+
+
+def test_an_infinite_score_range_is_refused():
+    """[-inf, inf] would admit an infinite score, and the candidate midpoints between an
+    infinite boundary and a finite score are NaN."""
+    with pytest.raises(ValidationError, match="finite"):
+        _guardrail(minimum_score=-math.inf, maximum_score=math.inf)
+
+
+@pytest.mark.parametrize("value", NON_FINITE)
+def test_case_rejects_a_non_finite_weight(value):
+    with pytest.raises(ValidationError, match=r"weight\s+Input should be a finite number"):
+        _case(weight=value)
+
+
+def test_a_non_finite_score_is_refused_on_the_result_not_only_against_the_range():
+    """Before this rule a NaN score reached the request-level range check, which refused
+    it with 'outside the range [0.0, 1.0]' — true only in the sense that NaN is outside
+    every range. The result itself now names the real problem."""
+    with pytest.raises(ValidationError, match="finite"):
+        GuardrailTestResult(guardrail_name="gr_a", score=math.nan)

@@ -24,6 +24,7 @@ Two rules carry the weight here, and both are about not flattering a policy:
     one.
 """
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -57,6 +58,39 @@ class Constraints:
     #: is what it can quietly make worse, because an escalated request waits for the
     #: cheap stage and the dear one. An SLO is written about this number.
     max_p95_latency_ms: float | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse a bar nothing could clear, at construction rather than in the report.
+
+        `Constraints(min_recall=98)` — a percentage where a rate was meant — is not
+        rejected by anything downstream. Every policy misses it, the recommendations come
+        back marked UNCONSTRAINED with "recall is 0.9, but must be at least 98" against
+        the closest, and the reader is left to notice that the bar, not the policy, was
+        wrong. A NaN bar is worse: `value >= nan` is False for every value, so it reads
+        as universally missed with no number to argue with.
+        """
+        rates = (
+            ("min_recall", self.min_recall),
+            ("min_precision", self.min_precision),
+            ("max_false_positive_rate", self.max_false_positive_rate),
+        )
+        latencies = (
+            ("max_latency_ms", self.max_latency_ms),
+            ("max_p95_latency_ms", self.max_p95_latency_ms),
+        )
+        for name, value in rates + latencies:
+            if value is not None and not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number, got {value}")
+        for name, value in rates:
+            if value is not None and not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"{name} is a rate and must lie in [0, 1], got {value}. A bar no "
+                    f"policy can clear would not be refused later — every policy would be "
+                    f"reported as missing it."
+                )
+        for name, value in latencies:
+            if value is not None and value < 0:
+                raise ValueError(f"{name} must be non-negative, got {value}")
 
 
 @dataclass(frozen=True, slots=True)

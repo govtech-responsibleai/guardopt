@@ -10,6 +10,14 @@ The second rule: **a gap is never a pass.** A test case that carries no result f
 enabled guardrail is a gap, and what it means is decided at simulation time by
 `OptimiserConfig.treat_missing_as`. Validation deliberately allows a sparse matrix
 rather than filling it in.
+
+The third: **every number is finite.** Python's `float` admits NaN and the infinities,
+and every comparison against NaN is `False` — so a NaN threshold never fires, a NaN
+score sits outside every range, and a `[nan, 1.0]` score range passes the `min < max`
+check because `nan >= 1.0` is also `False`. None of that raises; it produces a result
+that is internally consistent and describes nothing. So scores, ranges, default
+thresholds, latencies, costs and weights are all declared `allow_inf_nan=False`, and a
+non-finite value is refused where it enters, naming the field.
 """
 
 from typing import Any
@@ -32,11 +40,11 @@ class GuardrailDefinition(BaseModel):
 
     name: str = Field(min_length=1)
     score_direction: ScoreDirection
-    minimum_score: float
-    maximum_score: float
+    minimum_score: float = Field(allow_inf_nan=False)
+    maximum_score: float = Field(allow_inf_nan=False)
 
-    default_failed_threshold: float | None = None
-    default_warning_threshold: float | None = None
+    default_failed_threshold: float | None = Field(default=None, allow_inf_nan=False)
+    default_warning_threshold: float | None = Field(default=None, allow_inf_nan=False)
 
     is_mandatory: bool = False
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -59,7 +67,7 @@ class GuardrailDefinition(BaseModel):
     #: declared default threshold. Observed per-call costs on results take precedence
     #: where they exist; this fills where nothing was measured. `None` means the price
     #: is unknown, and an unknown price is never treated as free.
-    cost_per_call: float | None = Field(default=None, ge=0)
+    cost_per_call: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -115,14 +123,14 @@ class GuardrailTestResult(BaseModel):
     """
 
     guardrail_name: str = Field(min_length=1)
-    score: float | None = None
+    score: float | None = Field(default=None, allow_inf_nan=False)
     error: str | None = None
-    latency_ms: float | None = Field(default=None, ge=0)
+    latency_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     #: What this call actually cost, when the scorer reported it. Like `latency_ms`, an
     #: observation about the call rather than the verdict — and observed costs beat the
     #: declared `GuardrailDefinition.cost_per_call` where both exist.
-    cost: float | None = Field(default=None, ge=0)
+    cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -157,7 +165,7 @@ class TestCaseGuardrailResults(BaseModel):
     # BLOCK is the positive class.
     expected_action: ExpectedAction
 
-    weight: float = Field(default=1.0, gt=0)
+    weight: float = Field(default=1.0, gt=0, allow_inf_nan=False)
     guardrail_results: list[GuardrailTestResult]
 
     model_config = ConfigDict(from_attributes=True)

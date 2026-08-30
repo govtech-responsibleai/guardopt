@@ -56,6 +56,12 @@ from guardopt.domain.labelling import (
     unsafe_labels_needed,
 )
 from guardopt.domain.risk import RiskBound, false_negative_bound
+from guardopt.domain.sanity import (
+    DatasetFinding,
+    DatasetReport,
+    FindingKind,
+    check_dataset,
+)
 from guardopt.domain.slices import SliceMetrics, SliceReport, evaluate_slices
 from guardopt.optimise import (
     HoldoutEvaluation,
@@ -71,7 +77,10 @@ __all__ = [
     "Calibration",
     "CaseChange",
     "Constraints",
+    "DatasetFinding",
+    "DatasetReport",
     "ExpectedAction",
+    "FindingKind",
     "GuardoptError",
     "GuardoptInputError",
     "GuardrailBinding",
@@ -109,6 +118,7 @@ __all__ = [
     "calibrate",
     "calibrated_cases",
     "calibrated_definition",
+    "check_dataset",
     "diff_policies",
     "evaluate_slices",
     "false_negative_bound",

@@ -254,3 +254,43 @@ def test_a_file_round_trips(tmp_path):
     policy = _flat("a", "b")
     policy.to_file(path)
     assert Policy.from_file(path) == policy
+
+
+# ── non-finite thresholds ───────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_a_non_finite_blocking_threshold_is_refused(value):
+    """`score >= nan` is False for every score: a NaN blocking line is a guardrail that
+    silently never fires."""
+    with pytest.raises(ValueError, match="failed threshold must be a finite number"):
+        GuardrailBinding(
+            name="tox", score_direction=ScoreDirection.HIGHER_IS_RISKIER, failed=value
+        )
+
+
+def test_a_non_finite_warning_threshold_is_refused():
+    with pytest.raises(ValueError, match="warning threshold must be a finite number"):
+        GuardrailBinding(
+            name="tox",
+            score_direction=ScoreDirection.HIGHER_IS_RISKIER,
+            failed=0.5,
+            warning=float("nan"),
+        )
+
+
+def test_a_policy_file_carrying_a_json_nan_literal_is_refused():
+    """`json.loads` accepts the non-standard NaN and Infinity literals, so a hand-edited
+    file can carry one — it must not load as a binding that never blocks."""
+    payload = json.loads(
+        '{"name": "tox", "score_direction": "higher_is_riskier", "failed": NaN}'
+    )
+    with pytest.raises(ValueError, match="finite"):
+        GuardrailBinding.from_dict(payload)
+
+    payload = json.loads(
+        '{"name": "tox", "score_direction": "higher_is_riskier", '
+        '"failed": 0.9, "warning": -Infinity}'
+    )
+    with pytest.raises(ValueError, match="finite"):
+        GuardrailBinding.from_dict(payload)

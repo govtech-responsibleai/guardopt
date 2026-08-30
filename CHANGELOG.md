@@ -42,6 +42,19 @@ demanded.
 
 ### Added
 
+- **Dataset checks** (`check_dataset`, `domain/sanity.py`), run by `optimise()` on the
+  full dataset and leading `result.warnings`: one-label datasets, guardrails with no
+  score, a constant score or scores on only a handful of cases, and conflicting labels
+  on identical results — reported with `unavoidable_errors`, the floor on false
+  positives plus false negatives that no policy can beat. `OptimisationResult.dataset`
+  carries the structured report.
+- **Non-finite numbers are refused** wherever one enters: scores, ranges, default
+  thresholds, latencies, costs and weights on the input contract (a `[nan, 1.0]` range
+  used to pass the `min < max` check, because `nan >= 1.0` is `False`); blocking and
+  warning thresholds on policy bindings (`json.loads` accepts a bare `NaN`, and a NaN
+  line is a binding that never fires); and constraint bars, whose rates must also lie in
+  `[0, 1]` and latencies be non-negative — `Constraints(min_recall=98)` is refused
+  rather than reported as a bar every policy misses.
 - **The NumPy fast path** (`domain/vectorised.py`). The search's evaluation hot loop
   lowered to arrays: 19–40× faster on benchmark configs, identical verdicts. The pure
   per-case path stays in the codebase as the specification, held equal by a randomised

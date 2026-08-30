@@ -55,6 +55,7 @@ from guardopt.domain.metrics import (
 )
 from guardopt.domain.policy import Policy
 from guardopt.domain.risk import RiskBound, false_negative_bound
+from guardopt.domain.sanity import DatasetReport, check_dataset
 from guardopt.domain.route import evaluate_staged_policy_on_case
 from guardopt.domain.search import (
     EvaluatedPolicy,
@@ -156,6 +157,12 @@ class OptimisationResult:
     #: How often each pick survived a resampled dataset, when
     #: `OptimiserConfig.bootstrap_rounds` asked for the check.
     stability: StabilityReport | None = None
+
+    #: What the dataset itself could and could not support (domain/sanity.py): one-label
+    #: data, guardrails that separate nothing, conflicting labels on identical results.
+    #: Its messages lead `warnings`; the structured report is here so a caller can refuse
+    #: on a finding, or read `unavoidable_errors` — the error floor no policy can beat.
+    dataset: DatasetReport | None = None
 
     #: The deduplicated Pareto frontier the profiles were chosen from — every policy
     #: that was defensible, not only the three that were picked. Carried out so a
@@ -430,6 +437,11 @@ def optimise(
     else:
         request = problem
 
+    # On the full dataset, before any split: these are facts about what the caller
+    # supplied, and a finding that only held on the training half would be a finding
+    # about the split.
+    dataset = check_dataset(request)
+
     holdout_cases: tuple[TestCaseGuardrailResults, ...] = ()
     if request.config.holdout_fraction is not None:
         search_request, holdout_cases = split_for_holdout(request)
@@ -539,10 +551,19 @@ def optimise(
         recommendations=tuple(recommendations),
         search_method=diagnostics.method,
         diagnostics=diagnostics,
-        # The ladder's notes are kept: "this profile has no warning bands because nothing
-        # blocks harder than it" is a real observation, not chatter.
-        warnings=selection.warnings + tuple(extra_warnings) + ladder.notes,
+        # Dataset findings first, because they explain what follows: "no case is
+        # labelled block" is the reason for "no recommendation could be made", and the
+        # reader should meet the cause before the effect. The ladder's notes are kept:
+        # "this profile has no warning bands because nothing blocks harder than it" is a
+        # real observation, not chatter.
+        warnings=(
+            dataset.messages()
+            + selection.warnings
+            + tuple(extra_warnings)
+            + ladder.notes
+        ),
         pareto_candidate_count=selection.pareto_candidate_count,
         stability=stability,
+        dataset=dataset,
         frontier=tuple(selection.frontier),
     )

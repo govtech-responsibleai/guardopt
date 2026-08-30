@@ -23,6 +23,7 @@ invalidate them silently.
 """
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,18 @@ class GuardrailBinding:
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("a guardrail binding needs a name")
+
+        # Finite, or refused. `json.loads` accepts the non-standard NaN and Infinity
+        # literals, so a hand-edited file can carry one — and `score >= nan` is False for
+        # every score, which makes a NaN blocking line a guardrail that silently never
+        # fires. That is the one failure mode a threshold must not have quietly.
+        for label, value in (("failed", self.failed), ("warning", self.warning)):
+            if value is not None and not math.isfinite(value):
+                raise ValueError(
+                    f"'{self.name}': the {label} threshold must be a finite number, got "
+                    f"{value}. Every comparison against NaN is false, so this binding "
+                    f"would never fire."
+                )
 
         if self.warning is None:
             return
