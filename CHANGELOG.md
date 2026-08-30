@@ -12,6 +12,8 @@ demanded.
 
 ### Fixed
 
+- The JSONL loader refuses a non-boolean `unsafe` (a stringified `"false"` was
+  truthy and labelled safe records unsafe) and names the line of a non-object.
 - Percentiles are genuinely nearest-rank (ceiling rank). `round()` returned a
   lower order statistic for 142 of the first 300 sample sizes — a p95 covered
   as little as 90.9% of requests.
