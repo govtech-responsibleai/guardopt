@@ -5,7 +5,7 @@
 
 PY := .venv311/bin
 
-.PHONY: test lint types check docs docs-serve site preview docs-deploy
+.PHONY: test lint types check docs docs-serve site preview docs-deploy clean build
 
 test:
 	$(PY)/python -m pytest -q
@@ -17,6 +17,15 @@ types:
 	$(PY)/mypy
 
 check: lint types test
+
+# setuptools reuses a stale build/lib without pruning it: a wheel built here once carried
+# six retired v1 modules (guardopt.optimizer, guardopt.router, ...) that no longer exist
+# in src/. Build only from a clean tree, and only through `python -m build`.
+clean:
+	rm -rf build dist src/*.egg-info .site-root
+
+build: clean
+	$(PY)/python -m build
 
 docs:
 	$(PY)/mkdocs build --strict

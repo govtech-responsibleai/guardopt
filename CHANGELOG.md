@@ -12,6 +12,8 @@ demanded.
 
 ### Fixed
 
+- `make build` cleans first: a stale `build/lib/` was leaking six retired v1
+  modules into the wheel.
 - Stage search enforces mandatory guardrails: a cascade omitting one can no longer be
   evaluated, selected, or recommended.
 - Staged selections survive `optimise()`'s warning ladder with their structure intact.
